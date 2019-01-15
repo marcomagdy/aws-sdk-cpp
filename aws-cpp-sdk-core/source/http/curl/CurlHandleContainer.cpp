@@ -122,4 +122,17 @@ void CurlHandleContainer::SetDefaultOptionsOnHandle(CURL* handle)
     curl_easy_setopt(handle, CURLOPT_TCP_KEEPALIVE, m_enableTcpKeepAlive ? 1L : 0L);
     curl_easy_setopt(handle, CURLOPT_TCP_KEEPINTVL, m_tcpKeepAliveIntervalMs);
     curl_easy_setopt(handle, CURLOPT_TCP_KEEPIDLE, m_tcpKeepAliveIntervalMs);
+
+#ifdef CURL_HTTP2_SUPPORTED
+    // CURL_HTTP_VERSION_2TLS requires curl 7.47.0 and is set to default after curl 7.62.0
+    CURLcode res = curl_easy_setopt(handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
+    if (res)
+    {
+        AWS_LOGSTREAM_ERROR(CURL_HANDLE_CONTAINER_TAG, "Failed to enable Http2 on Curl handle: " << handle << ", with curl code: " << res << ". Fall back using HTTP1.1.");
+    }
+    else 
+    {
+        AWS_LOGSTREAM_TRACE(CURL_HANDLE_CONTAINER_TAG, "Http2 enabled on Curl handle: " << handle << ".");
+    }
+#endif
 }

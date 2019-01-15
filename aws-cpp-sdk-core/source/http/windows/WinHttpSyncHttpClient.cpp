@@ -39,6 +39,21 @@ using namespace Aws::Utils::Logging;
 
 static const uint32_t HTTP_REQUEST_WRITE_BUFFER_LENGTH = 8192;
 
+#ifdef WINHTTP_HTTP2_SUPPORTED
+static void WinHttpEnableHttp2(void* handle)
+{
+    DWORD http2 = WINHTTP_PROTOCOL_FLAG_HTTP2;
+    if (!WinHttpSetOption(handle, WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL, &http2, sizeof(http2))) 
+    {
+        AWS_LOGSTREAM_ERROR("WinHttpHttp2", "Failed to enable Http2 on WinHttp handle: " << handle << ". Fall back using HTTP1.1.");
+    }
+    else
+    {
+        AWS_LOGSTREAM_TRACE("WinHttpHttp2", "Http2 enabled on WinHttp handle: " << handle << ".");
+    }
+}
+#endif
+
 WinHttpSyncHttpClient::WinHttpSyncHttpClient(const ClientConfiguration& config) :
     Base()
 {
@@ -84,7 +99,9 @@ WinHttpSyncHttpClient::WinHttpSyncHttpClient(const ClientConfiguration& config) 
     {
         AWS_LOGSTREAM_WARN(GetLogTag(), "Error setting timeouts " << GetLastError());
     }
-
+#ifdef WINHTTP_HTTP2_SUPPORTED
+    WinHttpEnableHttp2(GetOpenHandle());
+#endif
     m_verifySSL = config.verifySSL;
     if (m_verifySSL)
     {
@@ -160,6 +177,10 @@ void* WinHttpSyncHttpClient::OpenRequest(const Aws::Http::HttpRequest& request, 
         if (!WinHttpSetOption(hHttpRequest, WINHTTP_OPTION_DISABLE_FEATURE, &requestFlags, sizeof(requestFlags)))
             AWS_LOGSTREAM_FATAL(GetLogTag(), "Failed to turn off redirects!");
     }
+
+#ifdef WINHTTP_HTTP2_SUPPORTED
+    WinHttpEnableHttp2(hHttpRequest);
+#endif
     return hHttpRequest;
 }
 
