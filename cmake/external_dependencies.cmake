@@ -1,4 +1,3 @@
-include(CheckCXXSourceCompiles)
 # Zlib
 if(PLATFORM_ANDROID AND ANDROID_BUILD_ZLIB)
     set(BUILD_ZLIB 1)
@@ -87,21 +86,6 @@ if(NOT NO_HTTP_CLIENT)
                 message(STATUS "  Curl include directory: ${CURL_INCLUDE_DIRS}")
                 message(STATUS "  Curl library: ${CURL_LIBRARIES}")
             endif()
-            
-            # HTTP2 was added to curl from 7.33. But a better flag CURL_HTTP_VERSION_2TLS requires curl 7.47.0 and is set to default after curl 7.62.0
-            # This flag was added as an enum member in curl.h and can't be found if we perform check_cxx_symbol_exists
-            set(HTTP2_TEST_SOURCE "
-                #include <curl/curl.h>
-                int main() {
-                    int x = CURL_HTTP_VERSION_2TLS;
-                    return x;
-                }")
-            unset(CURL_HAS_HTTP2 CACHE)
-            check_cxx_source_compiles("${HTTP2_TEST_SOURCE}" CURL_HAS_HTTP2)
-            if (CURL_HAS_HTTP2)
-                add_definitions(-DCURL_HTTP2_SUPPORTED)
-            endif()
-
             List(APPEND EXTERNAL_DEPS_INCLUDE_DIRS ${CURL_INCLUDE_DIRS})
         endif()
 
@@ -132,44 +116,6 @@ if(NOT NO_HTTP_CLIENT)
             message(STATUS "Http client: WinHttp")
         endif()
 
-        if ("winhttp" IN_LIST CLIENT_LIBS)
-            # Start from Windows 10, version 1507, WinINet supports HTTP2.
-            # https://docs.microsoft.com/en-us/windows/desktop/WinInet/option-flags#INTERNET_OPTION_ENABLE_HTTP_PROTOCOL
-            # 1507 related latest build number is 10240 based on https://en.wikipedia.org/wiki/Windows_10_version_history
-            # Start from Windows 10, version 1607, WinHttp supports HTTP2.
-            # https://docs.microsoft.com/en-us/windows/desktop/WinHttp/option-flags#WINHTTP_OPTION_ENABLE_HTTP_PROTOCOLa
-            # 1607 related latest build number is 14393 based on https://en.wikipedia.org/wiki/Windows_10_version_history
-            message(STATUS "Windows SDK Version: ${CMAKE_SYSTEM_VERSION}")
-
-            unset (WINHTTP_HAS_HTTP2 CACHE)
-            unset (WININET_HAS_HTTP2 CACHE)
-
-            set(HTTP2_TEST_SOURCE "
-                #include <Windows.h>
-                #include <winhttp.h>
-                int main() {
-                    int x = WINHTTP_PROTOCOL_FLAG_HTTP2;
-                    return x;
-                }")
-            check_cxx_source_compiles("${HTTP2_TEST_SOURCE}" WINHTTP_HAS_HTTP2)
-
-            set(HTTP2_TEST_SOURCE "
-                #include <Windows.h>
-                #include <WinInet.h>
-                int main() {
-                    int x = HTTP_PROTOCOL_FLAG_HTTP2;
-                    return x;
-                }")
-            check_cxx_source_compiles("${HTTP2_TEST_SOURCE}" WININET_HAS_HTTP2)
-        
-            if (WININET_HAS_HTTP2)
-                add_definitions(-DWININET_HTTP2_SUPPORTED)
-            endif()
-
-            if (WINHTTP_HAS_HTTP2)
-                add_definitions(-DWINHTTP_HTTP2_SUPPORTED)
-            endif()
-        endif()
     else()
         message(FATAL_ERROR "No http client available for target platform and client injection not enabled (-DNO_HTTP_CLIENT=ON)")
     endif()

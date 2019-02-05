@@ -17,6 +17,7 @@
 #include <aws/core/utils/logging/LogMacros.h>
 
 #include <algorithm>
+#include <curl/curlver.h>
 
 using namespace Aws::Utils::Logging;
 using namespace Aws::Http;
@@ -123,16 +124,18 @@ void CurlHandleContainer::SetDefaultOptionsOnHandle(CURL* handle)
     curl_easy_setopt(handle, CURLOPT_TCP_KEEPINTVL, m_tcpKeepAliveIntervalMs);
     curl_easy_setopt(handle, CURLOPT_TCP_KEEPIDLE, m_tcpKeepAliveIntervalMs);
 
-#ifdef CURL_HTTP2_SUPPORTED
-    // CURL_HTTP_VERSION_2TLS requires curl 7.47.0 and is set to default after curl 7.62.0
-    CURLcode res = curl_easy_setopt(handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
+#if LIBCURL_VERSION_MAJOR == 7 && LIBCURL_VERSION_MINOR >= 33
+    // HTTP/2 was added in libcurl starting with version 7.33.0
+    // Attempt HTTP 2 requests. libcurl will fall back to HTTP 1.1 if HTTP 2 can't be negotiated with the server.
+    // https://curl.haxx.se/libcurl/c/CURLOPT_HTTP_VERSION.html
+    CURLcode res = curl_easy_setopt(handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2_0);
     if (res)
     {
-        AWS_LOGSTREAM_ERROR(CURL_HANDLE_CONTAINER_TAG, "Failed to enable Http2 on Curl handle: " << handle << ", with curl code: " << res << ". Fall back using HTTP1.1.");
+        AWS_LOGSTREAM_ERROR(CURL_HANDLE_CONTAINER_TAG, "Failed to enable HTTP/2 on Curl handle: " << handle << ", with curl code: " << res << ". Fallback using HTTP/1.1.");
     }
-    else 
+    else
     {
-        AWS_LOGSTREAM_TRACE(CURL_HANDLE_CONTAINER_TAG, "Http2 enabled on Curl handle: " << handle << ".");
+        AWS_LOGSTREAM_DEBUG(CURL_HANDLE_CONTAINER_TAG, "HTTP/2 enabled on Curl handle: " << handle << ".");
     }
 #endif
 }

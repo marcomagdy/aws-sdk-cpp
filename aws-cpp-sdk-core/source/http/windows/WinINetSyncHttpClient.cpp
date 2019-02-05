@@ -39,20 +39,20 @@ using namespace Aws::Utils::Logging;
 
 static const uint32_t HTTP_REQUEST_WRITE_BUFFER_LENGTH = 8192;
 
-#ifdef WININET_HTTP2_SUPPORTED
 static void WinINetEnableHttp2(void* handle)
 {
+#ifdef WININET_HAS_H2
     DWORD http2 = HTTP_PROTOCOL_FLAG_HTTP2;
     if (!InternetSetOptionA(handle, INTERNET_OPTION_ENABLE_HTTP_PROTOCOL, &http2, sizeof(http2))) 
     {
-        AWS_LOGSTREAM_ERROR("WinINetHttp2", "Failed to enable Http2 on WinInet handle: " << handle << ". Fall back using HTTP1.1.");
+        AWS_LOGSTREAM_ERROR("WinINetHttp2", "Failed to enable HTTP/2 on WinInet handle: " << handle << ". Falling back to HTTP/1.1.");
     }
     else
     {
-        AWS_LOGSTREAM_TRACE("WinINetHttp2", "Http2 enabled on WinInet handle: " << handle << ".");
+        AWS_LOGSTREAM_DEBUG("WinINetHttp2", "HTTP/2 enabled on WinInet handle: " << handle << ".");
     }
+#endif
 }
-#endif 
 
 WinINetSyncHttpClient::WinINetSyncHttpClient(const ClientConfiguration& config) :
     Base()
@@ -91,9 +91,7 @@ WinINetSyncHttpClient::WinINetSyncHttpClient(const ClientConfiguration& config) 
 
     //override offline mode.
     InternetSetOptionA(GetOpenHandle(), INTERNET_OPTION_IGNORE_OFFLINE, nullptr, 0);
-#ifdef WININET_HTTP2_SUPPORTED
     WinINetEnableHttp2(GetOpenHandle());
-#endif
     if (!config.verifySSL)
     {
         AWS_LOGSTREAM_WARN(GetLogTag(), "Turning ssl unknown ca verification off.");
@@ -148,9 +146,7 @@ void* WinINetSyncHttpClient::OpenRequest(const Aws::Http::HttpRequest& request, 
         if (!m_proxyPassword.empty() && !InternetSetOptionA(hHttpRequest, INTERNET_OPTION_PROXY_PASSWORD, (LPVOID)m_proxyPassword.c_str(), (DWORD)m_proxyPassword.length()))
             AWS_LOGSTREAM_FATAL(GetLogTag(), "Failed setting password for proxy with error code: " << GetLastError());
     }
-#ifdef WININET_HTTP2_SUPPORTED
     WinINetEnableHttp2(hHttpRequest);
-#endif
 
     return hHttpRequest;
 }
