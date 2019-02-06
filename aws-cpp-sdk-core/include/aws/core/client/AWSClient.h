@@ -25,6 +25,8 @@
 #include <memory>
 #include <atomic>
 
+struct aws_array_list;
+
 namespace Aws
 {
     namespace Utils
@@ -221,7 +223,7 @@ namespace Aws
              * Transforms the AmazonWebServicesResult object into an HttpRequest.
              */
             virtual void BuildHttpRequest(const Aws::AmazonWebServiceRequest& request,
-                    const std::shared_ptr<Aws::Http::HttpRequest>& httpRequest) const;
+                    const std::shared_ptr<Aws::Http::HttpRequest>& httpRequest, Aws::Client::AWSAuthSigner* signer) const;
 
             /**
              *  Gets the underlying ErrorMarshaller for subclasses to use.
@@ -249,6 +251,9 @@ namespace Aws
             void InitializeGlobalStatics();
             std::shared_ptr<Aws::Http::HttpRequest> ConvertToRequestForPresigning(const Aws::AmazonWebServiceRequest& request, Aws::Http::URI& uri,
                 Aws::Http::HttpMethod method, const Aws::Http::QueryStringParameterCollection& extraParams) const;
+
+            void EncodeBodyAsEventStream(const std::shared_ptr<Aws::Http::HttpRequest>& httpRequest,
+                    Aws::Client::AWSAuthSigner* signer, const std::shared_ptr<Aws::IOStream>& body, aws_array_list headers) const;
 
             std::shared_ptr<Aws::Http::HttpClient> m_httpClient;
             std::shared_ptr<Aws::Auth::AWSAuthSignerProvider> m_signerProvider;

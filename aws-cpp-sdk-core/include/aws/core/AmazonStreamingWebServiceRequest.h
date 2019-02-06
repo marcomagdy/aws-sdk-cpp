@@ -79,6 +79,7 @@ namespace Aws
          */
         virtual Aws::Http::HeaderValueCollection GetRequestSpecificHeaders() const { return Aws::Http::HeaderValueCollection(); };
 
+
     private:
         std::shared_ptr<Aws::IOStream> m_bodyStream;
         Aws::String m_contentType;

@@ -23,6 +23,7 @@
 #include <aws/core/utils/DateTime.h>
 #include <aws/core/utils/Array.h>
 #include <aws/core/utils/threading/ReaderWriterLock.h>
+#include <aws/event-stream/event_stream.h>
 
 #include <memory>
 #include <atomic>
@@ -50,6 +51,8 @@ namespace Aws
         class AWSCredentials;
         class AWSCredentialsProvider;
         AWS_CORE_API extern const char SIGV4_SIGNER[];
+        AWS_CORE_API extern const char EVENTSTREAM_SIGV4_SIGNER[];
+        AWS_CORE_API extern const char SIGNATURE[];
         AWS_CORE_API extern const char NULL_SIGNER[];
     } // namespace Auth
 
@@ -77,6 +80,20 @@ namespace Aws
              * The default virtual function, just calls SignRequest.
              */
             virtual bool SignRequest(Aws::Http::HttpRequest& request, bool signBody) const { AWS_UNREFERENCED_PARAM(signBody); return SignRequest(request); }
+
+            /**
+             * Signs a single event message in an event stream.
+             * The input message buffer is copied and signed. The message's input buffer will be deallocated and a new
+             * buffer will be assigned. The new buffer encodes the original message with its headers as the payload of
+             * the new message. The signature of the original messaged will be added as a header to the new message.
+             *
+             * A Hex encoded signature of the previous event (or of the HTTP request headers in case of the first event)
+             * is provided as the 'priorSignature' parameter. 'priorSignature' will contain the value of the new
+             * signature after this call returns successfully.
+             *
+             * The function returns true when successful.
+             */
+            virtual bool SignEventMessage(aws_event_stream_message&, Aws::String& /* priorSignature */) const { return false; }
 
             /**
              * Takes a request and signs the URI based on the HttpMethod, URI and other info from the request.
@@ -203,12 +220,17 @@ namespace Aws
             */
             bool PresignRequest(Aws::Http::HttpRequest& request, const char* region, const char* serviceName, long long expirationInSeconds = 0) const override;
 
+            Aws::String GetServiceName() const { return m_serviceName; }
+            Aws::String GetRegion() const { return m_region; }
+            Aws::Utils::Crypto::Sha256* GetSha256() const { return m_hash.get(); }
+            Aws::Utils::Crypto::Sha256HMAC* GetSha256HMAC() const { return m_HMAC.get(); }
+            Aws::String GenerateSignature(const Aws::Auth::AWSCredentials& credentials,
+                    const Aws::String& stringToSign, const Aws::String& simpleDate) const;
+
         protected:
             bool m_includeSha256HashHeader;
 
         private:
-            Aws::String GenerateSignature(const Aws::Auth::AWSCredentials& credentials,
-                    const Aws::String& stringToSign, const Aws::String& simpleDate) const;
 
             Aws::String GenerateSignature(const Aws::Auth::AWSCredentials& credentials,
                     const Aws::String& stringToSign, const Aws::String& simpleDate, const Aws::String& region, 
@@ -243,6 +265,49 @@ namespace Aws
             mutable Utils::Threading::ReaderWriterLock m_partialSignatureLock;
             PayloadSigningPolicy m_payloadSigningPolicy;
             bool m_urlEscapePath;
+        };
+
+        class AWS_CORE_API AWSAuthEventStreamV4Signer : public AWSAuthSigner
+        {
+        public:
+            AWSAuthEventStreamV4Signer(const std::shared_ptr<Auth::AWSCredentialsProvider>& credentialsProvider,
+                    const char* serviceName, const Aws::String& region) :
+                m_v4signer(credentialsProvider, serviceName, region),
+                m_credentialsProvider(credentialsProvider)
+            {
+            }
+
+            const char* GetName() const override { return Aws::Auth::EVENTSTREAM_SIGV4_SIGNER; }
+
+            bool SignEventMessage(aws_event_stream_message&, Aws::String& priorSignature) const override;
+
+            bool SignRequest(Aws::Http::HttpRequest& r) const override
+            {
+                return SignRequest(r, true);
+            }
+
+            bool SignRequest(Aws::Http::HttpRequest& request, bool signBody) const override
+            {
+                return m_v4signer.SignRequest(request, signBody);
+            }
+
+            /**
+             * Do nothing
+             */
+            bool PresignRequest(Aws::Http::HttpRequest&, long long) const override { return false; }
+
+            /**
+             * Do nothing
+             */
+            bool PresignRequest(Aws::Http::HttpRequest&, const char*, long long) const override { return false; }
+
+            /**
+             * Do nothing
+             */
+            bool PresignRequest(Aws::Http::HttpRequest&, const char*, const char*, long long) const override { return false; }
+        private:
+            AWSAuthV4Signer m_v4signer;
+            std::shared_ptr<Auth::AWSCredentialsProvider> m_credentialsProvider;
         };
 
 

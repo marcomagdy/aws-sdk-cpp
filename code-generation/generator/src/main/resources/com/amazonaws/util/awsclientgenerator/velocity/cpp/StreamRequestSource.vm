@@ -28,6 +28,27 @@ ${typeInfo.className}::${typeInfo.className}()$initializers
 {
 }
 
+#if($shape.hasEventStreamMembers())
+\#include <aws/event-stream/event_stream.h>
+std::shared_ptr<Aws::IOStream> ${typeInfo.className}::GetBody() const
+{
+    // TODO: implement this
+    /*aws_event_stream_message message;
+    aws_byte_buf payload;
+    auto res =  aws_event_stream_message_init(&message, aws_default_allocator(), nullptr, &payload);
+
+    if (!payload.empty())
+    {
+        std::shared_ptr<Aws::IOStream> payloadBody = Aws::MakeShared<Aws::StringStream>("AmazonSerializableWebServiceRequest");
+        *payloadBody << payload;
+        return payloadBody;
+    }
+    */
+
+    return nullptr;
+}
+#end
+
 #if($shape.hasQueryStringMembers())
 #parse("com/amazonaws/util/awsclientgenerator/velocity/cpp/AddQueryStringParametersToRequest.vm")
 #end

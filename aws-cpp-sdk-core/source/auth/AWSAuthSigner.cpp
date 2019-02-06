@@ -31,7 +31,7 @@
 #include <cstdio>
 #include <iomanip>
 #include <math.h>
-#include <string.h>
+#include <cstring>
 
 using namespace Aws;
 using namespace Aws::Client;
@@ -41,7 +41,6 @@ using namespace Aws::Utils;
 using namespace Aws::Utils::Logging;
 
 static const char* EQ = "=";
-static const char* SIGNATURE = "Signature";
 static const char* AWS_HMAC_SHA256 = "AWS4-HMAC-SHA256";
 static const char* AWS4_REQUEST = "aws4_request";
 static const char* SIGNED_HEADERS = "SignedHeaders";
@@ -57,13 +56,18 @@ static const char* LONG_DATE_FORMAT_STR = "%Y%m%dT%H%M%SZ";
 static const char* SIMPLE_DATE_FORMAT_STR = "%Y%m%d";
 static const char* EMPTY_STRING_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
-static const char* v4LogTag = "AWSAuthV4Signer";
+static const char v4LogTag[] = "AWSAuthV4Signer";
+static const char v4StreamingLogTag[] = "AWSAuthEventStreamingV4Signer";
 
 namespace Aws
 {
     namespace Auth
     {
+        const char SIGNATURE[] = "Signature";
         const char SIGV4_SIGNER[] = "SignatureV4";
+        const char EVENTSTREAM_SIGV4_SIGNER[] = "EventStreamSignatureV4";
+        const char EVENTSTREAM_SIGNATURE_HEADER[] = ":chunk-signature";
+        const char EVENTSTREAM_DATE_HEADER[] = ":date";
         const char NULL_SIGNER[] = "NullSigner";
     }
 }
@@ -554,4 +558,69 @@ Aws::Utils::ByteBuffer AWSAuthV4Signer::ComputeHash(const Aws::String& secretKey
         return {};
     }
     return hashResult.GetResult();
+}
+
+bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& message, Aws::String& priorSignature) const
+{
+    Aws::StringStream stringToSign;
+    stringToSign << "AWS4-HMAC-SHA256-PAYLOAD" << NEWLINE;
+    const DateTime now = GetSigningTimestamp();
+    const auto simpleDate = now.ToGmtString(SIMPLE_DATE_FORMAT_STR);
+    stringToSign << now.ToGmtString(LONG_DATE_FORMAT_STR) << NEWLINE
+        <<  simpleDate << "/" << m_v4signer.GetRegion() << "/"
+        << m_v4signer.GetServiceName() << "aws4_request" << NEWLINE << priorSignature << NEWLINE;
+
+
+    Aws::StringStream nonSignatureHeaders;
+    nonSignatureHeaders << EVENTSTREAM_DATE_HEADER << now.Millis();
+    auto hashOutcome = m_v4signer.GetSha256()->Calculate(nonSignatureHeaders.str());
+    if (!hashOutcome.IsSuccess())
+    {
+        AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Failed to hash (sha256) non-signature headers.");
+        return false;
+    }
+
+    auto nonSignatureHeadersHash = hashOutcome.GetResult();
+    stringToSign << HashingUtils::HexEncode(nonSignatureHeadersHash) << NEWLINE;
+
+    // HexHash(payload)
+    Aws::StringStream payload;
+    const auto messageLength = aws_event_stream_message_total_length(&message);
+    payload.write(reinterpret_cast<char*> (message.message_buffer), messageLength);
+    payload.flush();
+    hashOutcome = m_v4signer.GetSha256()->Calculate(payload);
+    if (!hashOutcome.IsSuccess())
+    {
+        AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Failed to hash (sha256) non-signature headers.");
+        return false;
+    }
+
+    const auto payloadHash = hashOutcome.GetResult();
+    stringToSign << HashingUtils::HexEncode(payloadHash);
+    AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Signing the string - " << stringToSign.str());
+
+    auto finalSignature = m_v4signer.GenerateSignature(m_credentialsProvider->GetAWSCredentials(), stringToSign.str(), simpleDate);
+
+    aws_array_list headers;
+    aws_array_list_init_dynamic(&headers, aws_default_allocator(), 5, sizeof(aws_event_stream_header_value_pair));
+    aws_event_stream_add_bytebuf_header(&headers, EVENTSTREAM_SIGNATURE_HEADER, strlen(EVENTSTREAM_SIGNATURE_HEADER),
+            reinterpret_cast<uint8_t*>(const_cast<char*>(finalSignature.data())), finalSignature.length(), 1/*copy*/);
+    aws_event_stream_add_timestamp_header(&headers, EVENTSTREAM_DATE_HEADER, strlen(EVENTSTREAM_DATE_HEADER), now.Millis());
+
+    // mutate the input message to become an envelope of the original message along with the signature headers
+    // and the date
+    aws_event_stream_message originalMessage = message;
+    aws_byte_buf payloadBits;
+    payloadBits.allocator = nullptr; // the memory already exists in message
+    payloadBits.capacity = payloadBits.len = messageLength;
+    payloadBits.buffer = message.message_buffer;
+    if(auto err = aws_event_stream_message_init(&message, aws_default_allocator(), &headers, &payloadBits))
+    {
+        AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Error creating event-stream signed envelope message from paylaod.");
+        aws_array_list_clean_up(&headers);
+        return {};
+    }
+    aws_event_stream_message_clean_up(&originalMessage);
+    AWS_LOGSTREAM_INFO(v4StreamingLogTag, "Signed event chunk - " << finalSignature);
+    return true;
 }

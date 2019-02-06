@@ -41,7 +41,7 @@ public:
     void InvokeBuildHttpRequest(const AmazonWebServiceRequest& request,
         const std::shared_ptr<HttpRequest>& httpRequest) const
     {
-        BuildHttpRequest(request, httpRequest);
+        BuildHttpRequest(request, httpRequest, nullptr /*signer*/);
     }
 
 protected:

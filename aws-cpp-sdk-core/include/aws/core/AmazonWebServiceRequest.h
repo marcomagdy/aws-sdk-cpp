@@ -138,6 +138,22 @@ namespace Aws
 
         virtual const char* GetServiceRequestName() const = 0;
 
+        virtual bool IsEventStreamed() const { return false; }
+
+        /**
+         * Override this method to put data members from a subclass into the event stream message headers.
+         */
+        virtual aws_array_list GetEventStreamHeaders() const
+        {
+            aws_array_list list;
+            list.alloc = nullptr;
+            list.data = nullptr;
+            list.current_size = 0;
+            list.length = 0;
+            list.item_size = 0;
+            return list;
+        }
+
     protected:
         /**
          * Default does nothing. Override this to convert what would otherwise be the payload of the 

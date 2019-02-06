@@ -91,7 +91,7 @@ public class CppViewHelper {
     }
 
     public static String computeBaseClass(String classNamePrefix, Shape shape) {
-        String streamingName = shape.hasStreamMembers() ? "Streaming" : "";
+        String streamingName = shape.hasStreamMembers() || shape.hasEventStreamMembers() ? "Streaming" : "";
         return String.format("%s%sRequest", streamingName, classNamePrefix);
     }
 

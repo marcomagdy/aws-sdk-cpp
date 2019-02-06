@@ -16,8 +16,10 @@
 package com.amazonaws.util.awsclientgenerator.generators.cpp;
 
 import com.amazonaws.util.awsclientgenerator.domainmodels.SdkFileEntry;
+import com.amazonaws.util.awsclientgenerator.domainmodels.codegeneration.Operation;
 import com.amazonaws.util.awsclientgenerator.domainmodels.codegeneration.ServiceModel;
 import com.amazonaws.util.awsclientgenerator.domainmodels.codegeneration.Shape;
+import com.amazonaws.util.awsclientgenerator.domainmodels.codegeneration.ShapeMember;
 import com.amazonaws.util.awsclientgenerator.domainmodels.codegeneration.cpp.CppShapeInformation;
 import com.amazonaws.util.awsclientgenerator.domainmodels.codegeneration.cpp.CppViewHelper;
 import org.apache.velocity.Template;
@@ -89,13 +91,13 @@ public class JsonCppClientGenerator extends CppClientGenerator {
             Template template;
             VelocityContext context = createContext(serviceModel);
 
-            if (shape.isRequest() && shape.hasStreamMembers()) {
+            if (shape.isRequest() && (shape.hasStreamMembers() || shape.hasEventStreamMembers())) {
                 template = velocityEngine.getTemplate("/com/amazonaws/util/awsclientgenerator/velocity/cpp/StreamRequestSource.vm", StandardCharsets.UTF_8.name());
             }
             else if (shape.isRequest()) {
                 template = velocityEngine.getTemplate("/com/amazonaws/util/awsclientgenerator/velocity/cpp/json/JsonRequestSource.vm", StandardCharsets.UTF_8.name());
             }
-            else if (shape.isResult() && shape.hasStreamMembers()) {
+            else if (shape.isResult() && (shape.hasStreamMembers() || shape.hasEventStreamMembers())) {
                 template = velocityEngine.getTemplate("/com/amazonaws/util/awsclientgenerator/velocity/cpp/StreamResultSource.vm", StandardCharsets.UTF_8.name());
             }
             else if (shape.isResult()) {
@@ -141,5 +143,38 @@ public class JsonCppClientGenerator extends CppClientGenerator {
         String fileName = String.format("source/%sClient.cpp", serviceModel.getMetadata().getClassNamePrefix());
 
         return makeFile(template, context, fileName, true);
+    }
+
+    @Override
+    protected SdkFileEntry generateEventStreamHandlerSourceFile(ServiceModel serviceModel, Map.Entry<String, Shape> shapeEntry) throws Exception {
+        Shape shape = shapeEntry.getValue();
+        if (shape.isRequest()) {
+            Template template = velocityEngine.getTemplate("/com/amazonaws/util/awsclientgenerator/velocity/cpp/json/JsonEventStreamHandlerSource.vm", StandardCharsets.UTF_8.name());
+            VelocityContext context = createContext(serviceModel);
+
+            String operationName = "";
+            for (Map.Entry<String, Operation> opEntry : serviceModel.getOperations().entrySet()) {
+                String key = opEntry.getKey();
+                Operation op = opEntry.getValue();
+                if (op.getRequest() != null && op.getRequest().getShape().getName() == shape.getName() && op.getResult() != null) {
+                    if (op.getResult().getShape().hasEventStreamMembers()) {
+                        for (Map.Entry<String, ShapeMember> shapeMemberEntry : op.getResult().getShape().getMembers().entrySet()) {
+                            if (shapeMemberEntry.getValue().getShape().isEventStream()) {
+                                context.put("eventStreamShape", shapeMemberEntry.getValue().getShape());
+                                context.put("operation", op);
+                                context.put("shape", shape);
+                                context.put("typeInfo", new CppShapeInformation(shape, serviceModel));
+                                context.put("CppViewHelper", CppViewHelper.class);
+
+                                String fileName = String.format("source/model/%sHandler.cpp", key);
+                                return makeFile(template, context, fileName, true);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 }

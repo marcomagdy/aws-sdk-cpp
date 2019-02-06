@@ -168,7 +168,6 @@ public abstract class CppClientGenerator implements ClientGenerator {
             Template template = velocityEngine.getTemplate("/com/amazonaws/util/awsclientgenerator/velocity/cpp/RequestEventStreamHandlerHeader.vm", StandardCharsets.UTF_8.name());
             VelocityContext context = createContext(serviceModel);
 
-            String operationName = "";
             for (Map.Entry<String, Operation> opEntry : serviceModel.getOperations().entrySet()) {
                 String key = opEntry.getKey();
                 Operation op = opEntry.getValue();

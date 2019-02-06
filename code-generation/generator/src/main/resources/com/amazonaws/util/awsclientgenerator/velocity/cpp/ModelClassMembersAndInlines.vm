@@ -176,6 +176,7 @@
 #end
 #if($operation.result.shape.hasEventStreamMembers())
     Aws::Utils::Event::EventStreamDecoder m_decoder;
-    SelectObjectContentHandler m_handler;
+    ${operation.name}Handler m_handler;
+
 #end
 #end
