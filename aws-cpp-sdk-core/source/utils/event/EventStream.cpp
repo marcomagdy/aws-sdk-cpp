@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+ * Copyright 2010-2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License").
  * You may not use this file except in compliance with the License.
@@ -20,13 +20,24 @@ namespace Aws
     {
         namespace Event
         {
-            // static const char EVENT_STREAM_CLASS_TAG[] = "Aws::Utils::Event::EventStream";
 
             EventStream::EventStream(EventStreamDecoder& decoder, size_t eventStreamBufLength) :
                 Aws::IOStream(&m_eventStreamBuf),
                 m_eventStreamBuf(decoder, eventStreamBufLength)
             {
             }
+
+            EventEncoderStream::EventEncoderStream(const Aws::Client::AWSAuthSigner& signer) :
+                Aws::IOStream(&m_eventEncoderStreamBuf),
+                m_eventEncoderStreamBuf(signer)
+            {
+            }
+
+            void EventEncoderStream::finalize_event(aws_array_list* headers)
+            {
+                m_eventEncoderStreamBuf.FinalizeEvent(headers);
+            }
+
         }
     }
 }

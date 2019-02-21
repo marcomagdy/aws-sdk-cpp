@@ -413,8 +413,8 @@ void CurlHttpClient::MakeRequestInternal(HttpRequest& request,
         {
             curl_easy_setopt(connectionHandle, CURLOPT_FOLLOWLOCATION, 0L);
         }
-        //curl_easy_setopt(connectionHandle, CURLOPT_VERBOSE, 1);
-        //curl_easy_setopt(connectionHandle, CURLOPT_DEBUGFUNCTION, CurlDebugCallback);
+        curl_easy_setopt(connectionHandle, CURLOPT_VERBOSE, 1);
+        curl_easy_setopt(connectionHandle, CURLOPT_DEBUGFUNCTION, CurlDebugCallback);
 
         if (m_isUsingProxy)
         {

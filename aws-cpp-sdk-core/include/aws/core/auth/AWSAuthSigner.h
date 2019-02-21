@@ -333,6 +333,8 @@ namespace Aws
              */
             bool SignRequest(Aws::Http::HttpRequest&, bool) const override { return true; }
 
+            bool SignEventMessage(aws_event_stream_message&, Aws::String& /* priorSignature */) const override { return true; }
+
             /**
              * Do nothing
              */

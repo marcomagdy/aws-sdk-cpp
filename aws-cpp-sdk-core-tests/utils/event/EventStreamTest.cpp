@@ -133,7 +133,7 @@ namespace
 
         stream.write(reinterpret_cast<const char*>(data_raw), partialLength);
         stream.flush();
-        
+
         ASSERT_EQ(1u, handler.m_onPayloadSegmentCount);
         ASSERT_EQ(1u, handler.m_onCompletePayloadCount);
         ASSERT_EQ(1u, handler.m_onPreludeReceivedCount);
@@ -222,5 +222,61 @@ namespace
         ASSERT_EQ(1u, handler.m_internalErrorsCount);
         ASSERT_EQ(EventStreamErrors::EVENT_STREAM_PRELUDE_CHECKSUM_FAILURE, handler.m_error);
         ASSERT_TRUE(handler.m_errorMessage.find("CRC Mismatch.") == 0);
+    }
+
+    TEST_F(EventStreamTest, TestEncodingEvents)
+    {
+        Aws::Client::AWSNullSigner nullSigner;
+        EventEncoderStream io(nullSigner);
+        const char payloadString[] = "Amazon Web Services, Inc.";
+        io.set_signature_seed("deadbeef");
+        for (int i = 0; i < 5; i++)
+        {
+            io.write(payloadString, sizeof(payloadString));
+            io.finalize_event(&eventStreamHeaders);
+        }
+
+        io.close();
+        ASSERT_TRUE(io);
+
+        char output[1024];
+        io.read(output, sizeof(output));
+        ASSERT_EQ(635, io.gcount());
+        ASSERT_TRUE(io.eof());
+    }
+
+    TEST_F(EventStreamTest, EncodingEventsDecodesCorrectly)
+    {
+        struct MockHandler : Aws::Utils::Event::EventStreamHandler
+        {
+            void OnEvent() override { m_payload = GetEventPayloadAsString(); }
+
+            Aws::String GetPayload() const { return m_payload; }
+
+            Aws::String m_payload;
+        };
+
+        // write the payload to the stream and create an event out of it
+        Aws::Client::AWSNullSigner nullSigner;
+        EventEncoderStream io(nullSigner);
+        const char payloadString[] = "Amazon Web Services, Inc.";
+        io.set_signature_seed("deadbeef");
+        io.write(payloadString, sizeof(payloadString));
+        io.finalize_event(&eventStreamHeaders);
+        io.close();
+        ASSERT_TRUE(io);
+
+        // read the event bits and attempt to deserialize them
+        char output[1024];
+        io.read(output, sizeof(output));
+        ASSERT_TRUE(io.eof());
+
+        // verify that we get the same message out
+        MockHandler handler;
+        EventStreamDecoder decoder(&handler);
+        EventStream s(decoder);
+        s.write(output, io.gcount());
+        s.flush();
+        ASSERT_STREQ(payloadString, handler.m_payload.c_str());
     }
 }

@@ -36,12 +36,15 @@
 #include <aws/core/Globals.h>
 #include <aws/core/utils/EnumParseOverflowContainer.h>
 #include <aws/core/utils/crypto/MD5.h>
-#include <thread>
 #include <aws/core/utils/HashingUtils.h>
 #include <aws/core/utils/crypto/Factories.h>
 #include <aws/core/http/URI.h>
 #include <aws/core/monitoring/MonitoringManager.h>
+
+#include <thread>
 #include <cstring>
+#include <cassert>
+#include <fstream>
 
 using namespace Aws;
 using namespace Aws::Client;
@@ -475,6 +478,7 @@ void AWSClient::EncodeBodyAsEventStream(const std::shared_ptr<Aws::Http::HttpReq
 
     auto httpRequestBody = Aws::MakeShared<Aws::StringStream>(AWS_CLIENT_LOG_TAG);
     // Extract the hex-encoded signature from the authorization header rather than recalculating it.
+    assert(httpRequest->HasAwsAuthorization());
     const auto& authHeader = httpRequest->GetAwsAuthorization();
     auto signaturePosition = authHeader.rfind(Aws::Auth::SIGNATURE);
     // The auth header should end with 'Signation=<64 chars>'
@@ -516,6 +520,7 @@ void AWSClient::EncodeBodyAsEventStream(const std::shared_ptr<Aws::Http::HttpReq
         }
 
         auto messageLength = aws_event_stream_message_total_length(&message);
+        // tmp.write(reinterpret_cast<char*>(message.message_buffer), messageLength);
         if (!httpRequestBody->write(reinterpret_cast<char*>(message.message_buffer), messageLength))
         {
             AWS_LOGSTREAM_ERROR(AWS_CLIENT_LOG_TAG, "Error serializing the  event-stream message to the memory stream.");
@@ -543,6 +548,7 @@ void AWSClient::EncodeBodyAsEventStream(const std::shared_ptr<Aws::Http::HttpReq
     }
 
     auto messageLength = aws_event_stream_message_total_length(&message);
+    // tmp.write(reinterpret_cast<char*>(message.message_buffer), messageLength);
     if (!httpRequestBody->write(reinterpret_cast<char*>(message.message_buffer), messageLength))
     {
         AWS_LOGSTREAM_ERROR(AWS_CLIENT_LOG_TAG, "Error serializing the  event-stream message to the memory stream.");
@@ -554,6 +560,8 @@ void AWSClient::EncodeBodyAsEventStream(const std::shared_ptr<Aws::Http::HttpReq
     aws_event_stream_message_clean_up(&message);
     aws_array_list_clean_up(&headers);
 
+    httpRequestBody->flush();
+    httpRequestBody->seekg(0);
     httpRequest->AddContentBody(httpRequestBody);
 
     return;
