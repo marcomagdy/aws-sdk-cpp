@@ -105,6 +105,7 @@ void TranscribeStreamingServiceClient::OverrideEndpoint(const Aws::String& endpo
       m_uri = m_configScheme + "://" + endpoint;
   }
 }
+
 StartStreamTranscriptionOutcome TranscribeStreamingServiceClient::StartStreamTranscription(StartStreamTranscriptionRequest& request) const
 {
   Aws::Http::URI uri = m_uri;

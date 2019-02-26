@@ -16,6 +16,7 @@
 #include <aws/core/utils/logging/LogMacros.h>
 #include <aws/event-stream/event_stream.h>
 #include <cstdint>
+#include <cassert>
 
 namespace Aws
 {
@@ -24,7 +25,7 @@ namespace Aws
         namespace Event
         {
             const char TAG[] = "EventEncoderStreamBuf";
-            EventEncoderStreamBuf::EventEncoderStreamBuf(const Aws::Client::AWSAuthSigner& signer, size_t bufferLength)
+            EventEncoderStreamBuf::EventEncoderStreamBuf(const Aws::Client::AWSAuthSigner* signer, size_t bufferLength)
                 : m_putArea(bufferLength),
                 m_signer(signer),
                 m_eof(false)
@@ -74,7 +75,8 @@ namespace Aws
                         return;
                     }
 
-                    if (!m_signer.SignEventMessage(message, m_priorSignature))
+                    assert(m_signer);
+                    if (!m_signer->SignEventMessage(message, m_priorSignature))
                     {
                         AWS_LOGSTREAM_ERROR(TAG, "Failed to sign event message frame.");
                         aws_event_stream_message_clean_up(&message);

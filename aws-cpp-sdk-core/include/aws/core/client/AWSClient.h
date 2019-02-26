@@ -253,7 +253,7 @@ namespace Aws
                 Aws::Http::HttpMethod method, const Aws::Http::QueryStringParameterCollection& extraParams) const;
 
             void EncodeBodyAsEventStream(const std::shared_ptr<Aws::Http::HttpRequest>& httpRequest,
-                    Aws::Client::AWSAuthSigner* signer, const std::shared_ptr<Aws::IOStream>& body, aws_array_list headers) const;
+        Aws::Client::AWSAuthSigner* signer, const std::shared_ptr<Aws::IOStream>& body, aws_array_list headers) const;
 
             std::shared_ptr<Aws::Http::HttpClient> m_httpClient;
             std::shared_ptr<Aws::Auth::AWSAuthSignerProvider> m_signerProvider;

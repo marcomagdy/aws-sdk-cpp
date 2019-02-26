@@ -41,7 +41,7 @@ namespace Aws
                  * @param signer AWS authentication signer. This signer is invoked when wrapping the bits in an event.
                  * @param bufferLength The length of buffer, wiil be 4KB by default.
                  */
-                EventEncoderStreamBuf(const Aws::Client::AWSAuthSigner& signer, size_t bufferLength = 4 * 1024);
+                EventEncoderStreamBuf(const Aws::Client::AWSAuthSigner* signer, size_t bufferLength = 4 * 1024);
 
                 ~EventEncoderStreamBuf();
 
@@ -53,6 +53,8 @@ namespace Aws
                 void SetSignatureSeed(const Aws::String& seed) { m_priorSignature = seed; }
 
                 void SetEventHeaders(aws_array_list headers) { m_headers = headers; }
+
+                void SetSigner(const Aws::Client::AWSAuthSigner* signer) { m_signer = signer; }
 
                 void SetEof();
 
@@ -78,7 +80,7 @@ namespace Aws
                 Aws::String m_priorSignature;
                 std::mutex m_lock; // synchronize access to the common backbuffer
                 std::condition_variable m_signal;
-                const Aws::Client::AWSAuthSigner& m_signer;
+                const Aws::Client::AWSAuthSigner* m_signer;
                 aws_array_list m_headers;
                 bool m_eof;
             };

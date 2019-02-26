@@ -56,11 +56,13 @@ namespace Aws
                 /**
                  * Used for creating event-stream messages and serializing them as bit stream
                  */
-                explicit EventEncoderStream(const Aws::Client::AWSAuthSigner& signer);
+                explicit EventEncoderStream();
 
                 void set_signature_seed(const Aws::String& seed) { m_eventEncoderStreamBuf.SetSignatureSeed(seed); }
 
                 void set_event_headers(aws_array_list headers) { m_eventEncoderStreamBuf.SetEventHeaders(headers); }
+
+                void set_signer(Aws::Client::AWSAuthSigner* signer) { m_eventEncoderStreamBuf.SetSigner(signer); }
 
                 /**
                  * Marks the end of the output stream. Effectively, on the reading side (input) this translates to EOF.

@@ -227,7 +227,8 @@ namespace
     TEST_F(EventStreamTest, TestEncodingEvents)
     {
         Aws::Client::AWSNullSigner nullSigner;
-        EventEncoderStream io(nullSigner);
+        EventEncoderStream io;
+        io.set_signer(&nullSigner);
         const char payloadString[] = "Amazon Web Services, Inc.";
         io.set_signature_seed("deadbeef");
         for (int i = 0; i < 5; i++)
@@ -258,7 +259,8 @@ namespace
 
         // write the payload to the stream and create an event out of it
         Aws::Client::AWSNullSigner nullSigner;
-        EventEncoderStream io(nullSigner);
+        EventEncoderStream io;
+        io.set_signer(&nullSigner);
         const char payloadString[] = "Amazon Web Services, Inc.";
         io.set_signature_seed("deadbeef");
         io.write(payloadString, sizeof(payloadString));

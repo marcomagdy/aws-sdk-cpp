@@ -40,6 +40,7 @@
 #include <aws/core/utils/crypto/Factories.h>
 #include <aws/core/http/URI.h>
 #include <aws/core/monitoring/MonitoringManager.h>
+#include <aws/core/utils/event/EventStream.h>
 
 #include <thread>
 #include <cstring>
@@ -465,106 +466,30 @@ void AWSClient::AddContentBodyToRequest(const std::shared_ptr<Aws::Http::HttpReq
     }
 }
 
-void AWSClient::EncodeBodyAsEventStream(const std::shared_ptr<Aws::Http::HttpRequest>& httpRequest,
-        Aws::Client::AWSAuthSigner* signer, const std::shared_ptr<Aws::IOStream>& body, aws_array_list headers) const
+static Aws::String GetAuthorizationHeader(const Aws::Http::HttpRequest& httpRequest)
 {
-    const int BufferSize = 1024 * 8;
-    unsigned char buffer[BufferSize];
-    aws_byte_buf payload;
-    payload.len = 0;
-    payload.buffer = buffer;
-    payload.capacity = BufferSize;
-    payload.allocator = nullptr;
-
-    auto httpRequestBody = Aws::MakeShared<Aws::StringStream>(AWS_CLIENT_LOG_TAG);
     // Extract the hex-encoded signature from the authorization header rather than recalculating it.
-    assert(httpRequest->HasAwsAuthorization());
-    const auto& authHeader = httpRequest->GetAwsAuthorization();
+    assert(httpRequest.HasAwsAuthorization());
+    const auto& authHeader = httpRequest.GetAwsAuthorization();
     auto signaturePosition = authHeader.rfind(Aws::Auth::SIGNATURE);
     // The auth header should end with 'Signation=<64 chars>'
     // Make sure we found the word 'Signature' in the header and make sure it's the last item followed by its 64 hex chars
     if (signaturePosition == Aws::String::npos || (signaturePosition + strlen(Aws::Auth::SIGNATURE) + 1/*'=' character*/ + 64/*hex chars*/) != authHeader.length())
     {
         AWS_LOGSTREAM_ERROR(AWS_CLIENT_LOG_TAG, "Failed to extract signature from authorization header.");
-        return;
+        return {};
     }
-    auto priorSignature = authHeader.substr(signaturePosition + strlen(Aws::Auth::SIGNATURE) + 1);
+    return authHeader.substr(signaturePosition + strlen(Aws::Auth::SIGNATURE) + 1);
+}
 
-    body->seekg(0);
-    while (*body)
-    {
-        Aws::StringStream eventStream;
-        if(!body->read(reinterpret_cast<char*>(buffer), BufferSize))
-        {
-            payload.len = body->gcount();
-        }
-        else
-        {
-            payload.len = BufferSize;
-        }
-
-        aws_event_stream_message message;
-        if(auto err = aws_event_stream_message_init(&message, aws_default_allocator(), &headers, &payload))
-        {
-            AWS_LOGSTREAM_ERROR(AWS_CLIENT_LOG_TAG, "Error creating event-stream message from paylaod.");
-            aws_array_list_clean_up(&headers);
-            return;
-        }
-
-        if (!signer->SignEventMessage(message, priorSignature))
-        {
-            AWS_LOGSTREAM_ERROR(AWS_CLIENT_LOG_TAG, "Failed to sign event message frame.");
-            aws_event_stream_message_clean_up(&message);
-            aws_array_list_clean_up(&headers);
-            return;
-        }
-
-        auto messageLength = aws_event_stream_message_total_length(&message);
-        // tmp.write(reinterpret_cast<char*>(message.message_buffer), messageLength);
-        if (!httpRequestBody->write(reinterpret_cast<char*>(message.message_buffer), messageLength))
-        {
-            AWS_LOGSTREAM_ERROR(AWS_CLIENT_LOG_TAG, "Error serializing the  event-stream message to the memory stream.");
-            aws_event_stream_message_clean_up(&message);
-            aws_array_list_clean_up(&headers);
-            return;
-        }
-
-        aws_event_stream_message_clean_up(&message);
-    }
-
-    // write the final message with empty payload
-    aws_event_stream_message message;
-    if (auto err = aws_event_stream_message_init(&message, aws_default_allocator(), &headers, nullptr /*payload*/))
-    {
-        AWS_LOGSTREAM_ERROR(AWS_CLIENT_LOG_TAG, "Error creating event-stream message from paylaod.");
-        aws_array_list_clean_up(&headers);
-        return;
-    }
-
-    if (!signer->SignEventMessage(message, priorSignature))
-    {
-        AWS_LOGSTREAM_ERROR(AWS_CLIENT_LOG_TAG, "Failed to sign event message frame.");
-        return;
-    }
-
-    auto messageLength = aws_event_stream_message_total_length(&message);
-    // tmp.write(reinterpret_cast<char*>(message.message_buffer), messageLength);
-    if (!httpRequestBody->write(reinterpret_cast<char*>(message.message_buffer), messageLength))
-    {
-        AWS_LOGSTREAM_ERROR(AWS_CLIENT_LOG_TAG, "Error serializing the  event-stream message to the memory stream.");
-        aws_event_stream_message_clean_up(&message);
-        aws_array_list_clean_up(&headers);
-        return;
-    }
-
-    aws_event_stream_message_clean_up(&message);
-    aws_array_list_clean_up(&headers);
-
-    httpRequestBody->flush();
-    httpRequestBody->seekg(0);
-    httpRequest->AddContentBody(httpRequestBody);
-
-    return;
+void AWSClient::EncodeBodyAsEventStream(const std::shared_ptr<Aws::Http::HttpRequest>& httpRequest,
+        Aws::Client::AWSAuthSigner* signer, const std::shared_ptr<Aws::IOStream>& body, aws_array_list headers) const
+{
+    auto eventStream = std::static_pointer_cast<Aws::Utils::Event::EventEncoderStream>(body);
+    eventStream->set_event_headers(headers);
+    eventStream->set_signature_seed(GetAuthorizationHeader(*httpRequest));
+    eventStream->set_signer(signer);
+    httpRequest->AddContentBody(eventStream);
 }
 
 void AWSClient::BuildHttpRequest(const Aws::AmazonWebServiceRequest& request,

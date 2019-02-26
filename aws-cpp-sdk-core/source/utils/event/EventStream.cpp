@@ -27,9 +27,9 @@ namespace Aws
             {
             }
 
-            EventEncoderStream::EventEncoderStream(const Aws::Client::AWSAuthSigner& signer) :
+            EventEncoderStream::EventEncoderStream() :
                 Aws::IOStream(&m_eventEncoderStreamBuf),
-                m_eventEncoderStreamBuf(signer)
+                m_eventEncoderStreamBuf(nullptr/*signer*/)
             {
             }
 
