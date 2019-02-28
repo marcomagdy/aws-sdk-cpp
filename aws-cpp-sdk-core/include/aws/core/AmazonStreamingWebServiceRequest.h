@@ -85,5 +85,22 @@ namespace Aws
         Aws::String m_contentType;
     };
 
+    class AWS_CORE_API AmazonEventStreamWebServiceRequest : public AmazonStreamingWebServiceRequest
+    {
+        bool IsReadyForStreaming() const
+        {
+            return m_readyForStreaming;
+        }
+
+        void SetReadForStreaming(bool ready)
+        {
+            m_readyForStreaming = ready;
+        }
+
+    private:
+        std::atomic<bool> m_readyForStreaming;
+
+    };
+
 } // namespace Aws
 
