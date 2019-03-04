@@ -25,7 +25,7 @@ using namespace Aws::Utils;
 using namespace Aws::Utils::Logging;
 
 static const char* AllocationTag = "DefaultLogSystem";
-static const int BUFFERED_MSG_COUNT = 100;
+static const int BUFFERED_MSG_COUNT = 1;
 
 static std::shared_ptr<Aws::OFStream> MakeDefaultLogFile(const Aws::String& filenamePrefix)
 {

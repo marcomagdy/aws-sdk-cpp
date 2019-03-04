@@ -85,14 +85,15 @@ namespace Aws
         Aws::String m_contentType;
     };
 
-    class AWS_CORE_API AmazonEventStreamWebServiceRequest : public AmazonStreamingWebServiceRequest
+    class AWS_CORE_API AmazonEventStreamingWebServiceRequest : public AmazonStreamingWebServiceRequest
     {
+    public:
         bool IsReadyForStreaming() const
         {
             return m_readyForStreaming;
         }
 
-        void SetReadForStreaming(bool ready)
+        void SetReadyForStreaming(bool ready)
         {
             m_readyForStreaming = ready;
         }

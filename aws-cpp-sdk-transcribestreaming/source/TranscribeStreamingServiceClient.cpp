@@ -119,11 +119,12 @@ StartStreamTranscriptionOutcome TranscribeStreamingServiceClient::StartStreamTra
   JsonOutcome outcome = MakeRequest(uri, request, HttpMethod::HTTP_POST, Aws::Auth::EVENTSTREAM_SIGV4_SIGNER);
   if(outcome.IsSuccess())
   {
-    request.SetReadyForStreaming();
+    request.SetReadyForStreaming(true);
     return StartStreamTranscriptionOutcome(NoResult());
   }
   else
   {
+    request.SetReadyForStreaming(false);
     return StartStreamTranscriptionOutcome(outcome.GetError());
   }
 }

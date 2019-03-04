@@ -49,7 +49,7 @@ namespace TranscribeStreamingService
 
   };
 
-  typedef Aws::AmazonStreamingWebServiceRequest StreamingTranscribeStreamingServiceRequest;
+  typedef Aws::AmazonEventStreamingWebServiceRequest StreamingTranscribeStreamingServiceRequest;
 
 } // namespace TranscribeStreamingService
 } // namespace Aws

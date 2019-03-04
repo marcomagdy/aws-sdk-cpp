@@ -333,11 +333,10 @@ void CurlHttpClient::MakeRequestInternal(HttpRequest& request,
         AWS_LOGSTREAM_TRACE(CURL_HTTP_CLIENT_TAG, headerString);
         headers = curl_slist_append(headers, headerString.c_str());
     }
-    headers = curl_slist_append(headers, "transfer-encoding:");
 
     if (!request.HasHeader(Http::CONTENT_LENGTH_HEADER))
     {
-        headers = curl_slist_append(headers, "content-length:");
+        headers = curl_slist_append(headers, "transfer-encoding: chunked");
     }
 
     if (!request.HasHeader(Http::CONTENT_TYPE_HEADER))
