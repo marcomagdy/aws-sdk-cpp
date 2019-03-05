@@ -38,7 +38,7 @@ namespace Aws
 
                 // The get area must be larger than put area to make room for the wrapping bits.
                 m_getArea.reserve(bufferLength * 1.5);
-                m_backbuf.reserve(bufferLength);
+                m_backbuf.reserve(bufferLength * 1.5);
 
                 const auto pbegin = &m_putArea[0];
                 setp(pbegin, pbegin + bufferLength);
@@ -88,8 +88,7 @@ namespace Aws
                     // scope the lock
                     {
                         std::unique_lock<std::mutex> lock(m_lock);
-                        const auto remaining = m_backbuf.capacity() - m_backbuf.size();
-                        m_signal.wait(lock, [messageLength, remaining]{ return messageLength <= remaining; });
+                        m_signal.wait(lock, [this, messageLength]{ return messageLength <= (m_backbuf.capacity() - m_backbuf.size()); });
                         std::copy(message.message_buffer, message.message_buffer + messageLength,
                                 std::back_inserter(m_backbuf));
 
