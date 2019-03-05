@@ -163,6 +163,11 @@ struct CurlReadCallbackContext
     HttpRequest* m_request;
 };
 
+static size_t ReadBody(char* ptr, size_t size, size_t nmemb, void* userdata);
+static size_t SeekBody(void* userdata, curl_off_t offset, int origin);
+static size_t WriteData(char* ptr, size_t size, size_t nmemb, void* userdata);
+static size_t WriteHeader(char* ptr, size_t size, size_t nmemb, void* userdata);
+
 static const char* CURL_HTTP_CLIENT_TAG = "CurlHttpClient";
 
 void SetOptCodeForHttpMethod(CURL* requestHandle, const HttpRequest& request)
@@ -173,44 +178,21 @@ void SetOptCodeForHttpMethod(CURL* requestHandle, const HttpRequest& request)
             curl_easy_setopt(requestHandle, CURLOPT_HTTPGET, 1L);
             break;
         case HttpMethod::HTTP_POST:
-            if (!request.HasHeader(Aws::Http::CONTENT_LENGTH_HEADER)|| request.GetHeaderValue(Aws::Http::CONTENT_LENGTH_HEADER) == "0")
-            {
-                curl_easy_setopt(requestHandle, CURLOPT_CUSTOMREQUEST, "POST");
-            }
-            else
-            {
-                curl_easy_setopt(requestHandle, CURLOPT_POST, 1L);
-            }
+            curl_easy_setopt(requestHandle, CURLOPT_POST, 1L);
             break;
         case HttpMethod::HTTP_PUT:
-            if (!request.HasHeader(Aws::Http::CONTENT_LENGTH_HEADER) || request.GetHeaderValue(Aws::Http::CONTENT_LENGTH_HEADER) == "0")
-            {
-                curl_easy_setopt(requestHandle, CURLOPT_CUSTOMREQUEST, "PUT");
-            }
-            else
-            {
-                curl_easy_setopt(requestHandle, CURLOPT_PUT, 1L);
-            }
+            curl_easy_setopt(requestHandle, CURLOPT_PUT, 1L);
             break;
         case HttpMethod::HTTP_HEAD:
             curl_easy_setopt(requestHandle, CURLOPT_HTTPGET, 1L);
             curl_easy_setopt(requestHandle, CURLOPT_NOBODY, 1L);
             break;
         case HttpMethod::HTTP_PATCH:
-            if (!request.HasHeader(Aws::Http::CONTENT_LENGTH_HEADER)|| request.GetHeaderValue(Aws::Http::CONTENT_LENGTH_HEADER) == "0")
-            {
-                curl_easy_setopt(requestHandle, CURLOPT_CUSTOMREQUEST, "PATCH");
-            }
-            else
-            {
-                curl_easy_setopt(requestHandle, CURLOPT_POST, 1L);
-                curl_easy_setopt(requestHandle, CURLOPT_CUSTOMREQUEST, "PATCH");
-            }
-
+            curl_easy_setopt(requestHandle, CURLOPT_POST, 1L);
+            curl_easy_setopt(requestHandle, CURLOPT_CUSTOMREQUEST, "PATCH");
             break;
         case HttpMethod::HTTP_DELETE:
             curl_easy_setopt(requestHandle, CURLOPT_CUSTOMREQUEST, "DELETE");
-            //curl_easy_setopt(requestHandle, CURLOPT_NOBODY, 1L);
             break;
         default:
             assert(0);
@@ -367,9 +349,9 @@ void CurlHttpClient::MakeRequestInternal(HttpRequest& request,
         SetOptCodeForHttpMethod(connectionHandle, request);
 
         curl_easy_setopt(connectionHandle, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(connectionHandle, CURLOPT_WRITEFUNCTION, &CurlHttpClient::WriteData);
+        curl_easy_setopt(connectionHandle, CURLOPT_WRITEFUNCTION, WriteData);
         curl_easy_setopt(connectionHandle, CURLOPT_WRITEDATA, &writeContext);
-        curl_easy_setopt(connectionHandle, CURLOPT_HEADERFUNCTION, &CurlHttpClient::WriteHeader);
+        curl_easy_setopt(connectionHandle, CURLOPT_HEADERFUNCTION, WriteHeader);
         curl_easy_setopt(connectionHandle, CURLOPT_HEADERDATA, response.get());
 
         //we only want to override the default path if someone has explicitly told us to.
@@ -434,9 +416,9 @@ void CurlHttpClient::MakeRequestInternal(HttpRequest& request,
 
         if (request.GetContentBody())
         {
-            curl_easy_setopt(connectionHandle, CURLOPT_READFUNCTION, &CurlHttpClient::ReadBody);
+            curl_easy_setopt(connectionHandle, CURLOPT_READFUNCTION, ReadBody);
             curl_easy_setopt(connectionHandle, CURLOPT_READDATA, &readContext);
-            curl_easy_setopt(connectionHandle, CURLOPT_SEEKFUNCTION, &CurlHttpClient::SeekBody);
+            curl_easy_setopt(connectionHandle, CURLOPT_SEEKFUNCTION, SeekBody);
             curl_easy_setopt(connectionHandle, CURLOPT_SEEKDATA, &readContext);
         }
         Aws::Utils::DateTime startTransmissionTime = Aws::Utils::DateTime::Now();
@@ -536,7 +518,7 @@ std::shared_ptr<HttpResponse> CurlHttpClient::MakeRequest(const std::shared_ptr<
     return response;
 }
 
-size_t CurlHttpClient::WriteData(char* ptr, size_t size, size_t nmemb, void* userdata)
+static size_t WriteData(char* ptr, size_t size, size_t nmemb, void* userdata)
 {
     if (ptr)
     {
@@ -569,7 +551,7 @@ size_t CurlHttpClient::WriteData(char* ptr, size_t size, size_t nmemb, void* use
     return 0;
 }
 
-size_t CurlHttpClient::WriteHeader(char* ptr, size_t size, size_t nmemb, void* userdata)
+static size_t WriteHeader(char* ptr, size_t size, size_t nmemb, void* userdata)
 {
     if (ptr)
     {
@@ -589,7 +571,7 @@ size_t CurlHttpClient::WriteHeader(char* ptr, size_t size, size_t nmemb, void* u
 }
 
 
-size_t CurlHttpClient::ReadBody(char* ptr, size_t size, size_t nmemb, void* userdata)
+static size_t ReadBody(char* ptr, size_t size, size_t nmemb, void* userdata)
 {
     CurlReadCallbackContext* context = reinterpret_cast<CurlReadCallbackContext*>(userdata);
     if(context == nullptr)
@@ -628,7 +610,7 @@ size_t CurlHttpClient::ReadBody(char* ptr, size_t size, size_t nmemb, void* user
     return 0;
 }
 
-size_t CurlHttpClient::SeekBody(void* userdata, curl_off_t offset, int origin)
+static size_t SeekBody(void* userdata, curl_off_t offset, int origin)
 {
     CurlReadCallbackContext* context = reinterpret_cast<CurlReadCallbackContext*>(userdata);
     if(context == nullptr)
