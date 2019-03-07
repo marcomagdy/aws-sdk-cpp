@@ -120,6 +120,7 @@ namespace Aws
                     }
 
                     m_signal.wait(lock, [this]{ return m_backbuf.empty() == false; });
+                    m_getArea.clear();
                     std::copy(m_backbuf.begin(), m_backbuf.end(), std::back_inserter(m_getArea));
                     m_backbuf.clear();
                 }

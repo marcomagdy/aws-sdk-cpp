@@ -706,6 +706,7 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
 
     const auto payloadHash = hashOutcome.GetResult();
     stringToSign << HashingUtils::HexEncode(payloadHash);
+    AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Payload hash  - " << HashingUtils::HexEncode(payloadHash));
     AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Signing the string - " << stringToSign.str());
 
     auto finalSignature = GenerateSignature(m_credentialsProvider->GetAWSCredentials(), stringToSign.str(), simpleDate);
@@ -714,15 +715,17 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
     aws_array_list_init_dynamic(&headers, aws_default_allocator(), 5, sizeof(aws_event_stream_header_value_pair));
     aws_event_stream_add_timestamp_header(&headers, EVENTSTREAM_DATE_HEADER, strlen(EVENTSTREAM_DATE_HEADER), now.Millis());
     aws_event_stream_add_bytebuf_header(&headers, EVENTSTREAM_SIGNATURE_HEADER, strlen(EVENTSTREAM_SIGNATURE_HEADER),
-            reinterpret_cast<uint8_t*>(const_cast<char*>(finalSignature.data())), finalSignature.length(), 1/*copy*/);
+            reinterpret_cast<uint8_t*>(&finalSignature[0]), finalSignature.length(), 1/*copy*/);
 
     // mutate the input message to become an envelope of the original message along with the signature headers
     // and the date
     aws_event_stream_message originalMessage = message;
     aws_byte_buf payloadBits;
     payloadBits.allocator = nullptr; // the memory already exists in message
-    payloadBits.capacity = payloadBits.len = messageLength;
+    payloadBits.capacity = messageLength;
+    payloadBits.len = messageLength;
     payloadBits.buffer = message.message_buffer;
+    message.message_buffer = nullptr;
     if(auto err = aws_event_stream_message_init(&message, aws_default_allocator(), &headers, &payloadBits))
     {
         AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Error creating event-stream signed envelope message from paylaod.");
