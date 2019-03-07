@@ -52,13 +52,51 @@ namespace Aws
 
             void EventEncoderStreamBuf::SetEof()
             {
-                std::unique_lock<std::mutex> lock(m_lock);
-                m_eof = true;
+                {
+                    std::unique_lock<std::mutex> lock(m_lock);
+                    m_eof = true;
+                }
+                m_signal.notify_all();
+            }
+
+            void EventEncoderStreamBuf::SendMessage(aws_event_stream_message& message)
+            {
+                assert(m_signer);
+                if (!m_signer->SignEventMessage(message, m_priorSignature))
+                {
+                    AWS_LOGSTREAM_ERROR(TAG, "Failed to sign event message frame.");
+                    aws_event_stream_message_clean_up(&message);
+                    return;
+                }
+
+                auto messageLength = aws_event_stream_message_total_length(&message);
+
+                // scope the lock
+                {
+                    std::unique_lock<std::mutex> lock(m_lock);
+                    m_signal.wait(lock, [this, messageLength]{ return messageLength <= (m_backbuf.capacity() - m_backbuf.size()); });
+                    std::copy(message.message_buffer, message.message_buffer + messageLength,
+                            std::back_inserter(m_backbuf));
+
+                    const auto pbegin = &m_putArea[0];
+                    setp(pbegin, pbegin + m_putArea.size());
+                }
+                aws_event_stream_message_clean_up(&message);
+                m_signal.notify_one();
             }
 
             void EventEncoderStreamBuf::FinalizeEvent(aws_array_list* headers)
             {
-                if (pptr() >= pbase())
+                if (headers == nullptr)
+                {
+                    aws_event_stream_message message;
+                    message.alloc = nullptr;
+                    message.message_buffer = nullptr;
+                    message.owns_buffer = false;
+                    SendMessage(message);
+                }
+
+                else if (pptr() >= pbase())
                 {
                     // create the message here and copy to the get area
                     aws_byte_buf payload;
@@ -75,28 +113,7 @@ namespace Aws
                         return;
                     }
 
-                    assert(m_signer);
-                    if (!m_signer->SignEventMessage(message, m_priorSignature))
-                    {
-                        AWS_LOGSTREAM_ERROR(TAG, "Failed to sign event message frame.");
-                        aws_event_stream_message_clean_up(&message);
-                        return;
-                    }
-
-                    auto messageLength = aws_event_stream_message_total_length(&message);
-
-                    // scope the lock
-                    {
-                        std::unique_lock<std::mutex> lock(m_lock);
-                        m_signal.wait(lock, [this, messageLength]{ return messageLength <= (m_backbuf.capacity() - m_backbuf.size()); });
-                        std::copy(message.message_buffer, message.message_buffer + messageLength,
-                                std::back_inserter(m_backbuf));
-
-                        const auto pbegin = &m_putArea[0];
-                        setp(pbegin, pbegin + m_putArea.size());
-                    }
-                    aws_event_stream_message_clean_up(&message);
-                    m_signal.notify_one();
+                    SendMessage(message);
                 }
             }
 
@@ -114,12 +131,13 @@ namespace Aws
             {
                 {
                     std::unique_lock<std::mutex> lock(m_lock);
+                    m_signal.wait(lock, [this]{ return m_backbuf.empty() == false || m_eof; });
+
                     if (m_eof && m_backbuf.empty())
                     {
                         return std::char_traits<char>::eof();
                     }
 
-                    m_signal.wait(lock, [this]{ return m_backbuf.empty() == false; });
                     m_getArea.clear();
                     std::copy(m_backbuf.begin(), m_backbuf.end(), std::back_inserter(m_getArea));
                     m_backbuf.clear();
@@ -151,7 +169,7 @@ namespace Aws
 
             int EventEncoderStreamBuf::sync()
             {
-                FinalizeEvent(&m_headers);
+                FinalizeEvent(nullptr);
                 return 0;
             }
         }

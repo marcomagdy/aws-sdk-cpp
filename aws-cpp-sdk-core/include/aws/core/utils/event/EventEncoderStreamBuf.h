@@ -57,6 +57,7 @@ namespace Aws
                 void SetSigner(const Aws::Client::AWSAuthSigner* signer) { m_signer = signer; }
 
                 void SetEof();
+                void SendMessage(aws_event_stream_message& message);
 
                 /**
                  * Wraps the current bits in the put area as the payload of an Event.

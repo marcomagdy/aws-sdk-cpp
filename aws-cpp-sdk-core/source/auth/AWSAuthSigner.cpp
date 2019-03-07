@@ -694,9 +694,12 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
 
     // HexHash(payload)
     Aws::StringStream payload;
-    const auto messageLength = aws_event_stream_message_total_length(&message);
-    payload.write(reinterpret_cast<char*> (message.message_buffer), messageLength);
-    payload.flush();
+    const auto messageLength = message.message_buffer ? aws_event_stream_message_total_length(&message) : 0;
+    if (messageLength)
+    {
+        payload.write(reinterpret_cast<char*> (message.message_buffer), messageLength);
+        payload.flush();
+    }
     hashOutcome = m_hash.Calculate(payload);
     if (!hashOutcome.IsSuccess())
     {
