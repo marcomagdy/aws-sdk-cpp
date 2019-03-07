@@ -320,6 +320,11 @@ namespace Aws
                 Http::HttpMethod method = Http::HttpMethod::HTTP_POST,
                 const char* signerName = Aws::Auth::SIGV4_SIGNER,
                 const char* requestName = nullptr) const;
+
+            // JsonOutcome MakeStreamingRequest(const Aws::Http::URI& uri,
+            //     const Aws::AmazonEventStreamingWebServiceRequest& request,
+            //     Http::HttpMethod method = Http::HttpMethod::HTTP_POST,
+            //     const char* signerName = Aws::Auth::SIGV4_SIGNER) const;
         };
 
         typedef Utils::Outcome<AmazonWebServiceResult<Utils::Xml::XmlDocument>, AWSError<CoreErrors>> XmlOutcome;

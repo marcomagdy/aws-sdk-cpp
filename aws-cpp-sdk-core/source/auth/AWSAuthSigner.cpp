@@ -42,6 +42,8 @@ using namespace Aws::Utils::Logging;
 
 static const char* EQ = "=";
 static const char* AWS_HMAC_SHA256 = "AWS4-HMAC-SHA256";
+static const char* EVENT_STREAM_CONTENT_SHA256 = "STREAMING-AWS4-HMAC-SHA256-EVENTS";
+static const char* EVENT_STREAM_PAYLOAD = "AWS4-HMAC-SHA256-PAYLOAD";
 static const char* AWS4_REQUEST = "aws4_request";
 static const char* SIGNED_HEADERS = "SignedHeaders";
 static const char* CREDENTIAL = "Credential";
@@ -57,7 +59,7 @@ static const char* SIMPLE_DATE_FORMAT_STR = "%Y%m%d";
 static const char* EMPTY_STRING_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 static const char v4LogTag[] = "AWSAuthV4Signer";
-static const char v4StreamingLogTag[] = "AWSAuthEventStreamingV4Signer";
+static const char v4StreamingLogTag[] = "AWSAuthEventStreamV4Signer";
 
 namespace Aws
 {
@@ -211,7 +213,7 @@ bool AWSAuthV4Signer::SignRequest(Aws::Http::HttpRequest& request, bool signBody
 
     if(signBody || request.GetUri().GetScheme() != Http::Scheme::HTTPS)
     {
-        payloadHash.assign(ComputePayloadHash(request));
+        payloadHash = ComputePayloadHash(request);
         if (payloadHash.empty())
         {
             return false;
@@ -253,7 +255,7 @@ bool AWSAuthV4Signer::SignRequest(Aws::Http::HttpRequest& request, bool signBody
     //remove that last semi-colon
     if (!signedHeadersValue.empty())
     {
-        signedHeadersValue.pop_back();   
+        signedHeadersValue.pop_back();
     }
 
     AWS_LOGSTREAM_DEBUG(v4LogTag, "Signed Headers value:" << signedHeadersValue);
@@ -379,9 +381,12 @@ bool AWSAuthV4Signer::PresignRequest(Aws::Http::HttpRequest& request, const char
     canonicalRequestString.append(NEWLINE);
     canonicalRequestString.append(signedHeadersValue);
     canonicalRequestString.append(NEWLINE);
-    if (ServiceRequireUnsignedPayload(serviceName)) {
+    if (ServiceRequireUnsignedPayload(serviceName))
+    {
         canonicalRequestString.append(UNSIGNED_PAYLOAD);
-    } else {
+    }
+    else
+    {
         canonicalRequestString.append(EMPTY_STRING_SHA256);
     }
     AWS_LOGSTREAM_DEBUG(v4LogTag, "Canonical Request String: " << canonicalRequestString);
@@ -560,20 +565,124 @@ Aws::Utils::ByteBuffer AWSAuthV4Signer::ComputeHash(const Aws::String& secretKey
     return hashResult.GetResult();
 }
 
+bool AWSAuthEventStreamV4Signer::SignRequest(Aws::Http::HttpRequest& request, bool /* signBody */) const
+{
+    AWSCredentials credentials = m_credentialsProvider->GetAWSCredentials();
+
+    //don't sign anonymous requests
+    if (credentials.GetAWSAccessKeyId().empty() || credentials.GetAWSSecretKey().empty())
+    {
+        return true;
+    }
+
+    if (!credentials.GetSessionToken().empty())
+    {
+        request.SetAwsSessionToken(credentials.GetSessionToken());
+    }
+
+    request.SetHeaderValue("x-amz-content-sha256", EVENT_STREAM_CONTENT_SHA256);
+
+    //calculate date header to use in internal signature (this also goes into date header).
+    DateTime now = GetSigningTimestamp();
+    Aws::String dateHeaderValue = now.ToGmtString(LONG_DATE_FORMAT_STR);
+    request.SetHeaderValue(AWS_DATE_HEADER, dateHeaderValue);
+
+    Aws::StringStream headersStream;
+    Aws::StringStream signedHeadersStream;
+
+    for (const auto& header : CanonicalizeHeaders(request.GetHeaders()))
+    {
+        if(ShouldSignHeader(header.first))
+        {
+            headersStream << header.first.c_str() << ":" << header.second.c_str() << NEWLINE;
+            signedHeadersStream << header.first.c_str() << ";";
+        }
+    }
+
+    Aws::String canonicalHeadersString = headersStream.str();
+    AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Canonical Header String: " << canonicalHeadersString);
+
+    //calculate signed headers parameter
+    Aws::String signedHeadersValue = signedHeadersStream.str();
+    //remove that last semi-colon
+    if (!signedHeadersValue.empty())
+    {
+        signedHeadersValue.pop_back();
+    }
+
+    AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Signed Headers value:" << signedHeadersValue);
+
+    //generate generalized canonicalized request string.
+    Aws::String canonicalRequestString = CanonicalizeRequestSigningString(request, true/* m_urlEscapePath */);
+
+    //append v4 stuff to the canonical request string.
+    canonicalRequestString.append(canonicalHeadersString);
+    canonicalRequestString.append(NEWLINE);
+    canonicalRequestString.append(signedHeadersValue);
+    canonicalRequestString.append(NEWLINE);
+    canonicalRequestString.append(EVENT_STREAM_CONTENT_SHA256);
+
+    AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Canonical Request String: " << canonicalRequestString);
+
+    //now compute sha256 on that request string
+    auto hashResult = m_hash.Calculate(canonicalRequestString);
+    if (!hashResult.IsSuccess())
+    {
+        AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Failed to hash (sha256) request string");
+        AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "The request string is: \"" << canonicalRequestString << "\"");
+        return false;
+    }
+
+    auto sha256Digest = hashResult.GetResult();
+    Aws::String cannonicalRequestHash = HashingUtils::HexEncode(sha256Digest);
+    Aws::String simpleDate = now.ToGmtString(SIMPLE_DATE_FORMAT_STR);
+
+    Aws::String stringToSign = GenerateStringToSign(dateHeaderValue, simpleDate, cannonicalRequestHash, m_region,
+            m_serviceName);
+    auto finalSignature = GenerateSignature(credentials, stringToSign, simpleDate);
+
+    Aws::StringStream ss;
+    ss << AWS_HMAC_SHA256 << " " << CREDENTIAL << EQ << credentials.GetAWSAccessKeyId() << "/" << simpleDate
+        << "/" << m_region << "/" << m_serviceName << "/" << AWS4_REQUEST << ", " << SIGNED_HEADERS << EQ
+        << signedHeadersValue << ", " << SIGNATURE << EQ << finalSignature;
+
+    auto awsAuthString = ss.str();
+    AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Signing request with: " << awsAuthString);
+    request.SetAwsAuthorization(awsAuthString);
+    request.SetSigningAccessKey(credentials.GetAWSAccessKeyId());
+    request.SetSigningRegion(m_region);
+    return true;
+}
+
+static void WriteBigEndian(Aws::StringStream& stream, uint64_t n)
+{
+    int shift = 56;
+    while(shift >= 0)
+    {
+        stream.put((n >> shift) & 0xFF);
+        shift -= 8;
+    }
+}
+
 bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& message, Aws::String& priorSignature) const
 {
     Aws::StringStream stringToSign;
-    stringToSign << "AWS4-HMAC-SHA256-PAYLOAD" << NEWLINE;
+    stringToSign << EVENT_STREAM_PAYLOAD << NEWLINE;
     const DateTime now = GetSigningTimestamp();
     const auto simpleDate = now.ToGmtString(SIMPLE_DATE_FORMAT_STR);
     stringToSign << now.ToGmtString(LONG_DATE_FORMAT_STR) << NEWLINE
-        <<  simpleDate << "/" << m_v4signer.GetRegion() << "/"
-        << m_v4signer.GetServiceName() << "aws4_request" << NEWLINE << priorSignature << NEWLINE;
+        <<  simpleDate << "/" << m_region << "/"
+        << m_serviceName << "/aws4_request" << NEWLINE << priorSignature << NEWLINE;
 
 
     Aws::StringStream nonSignatureHeaders;
-    nonSignatureHeaders << EVENTSTREAM_DATE_HEADER << now.Millis();
-    auto hashOutcome = m_v4signer.GetSha256()->Calculate(nonSignatureHeaders.str());
+    nonSignatureHeaders.put(5);
+    nonSignatureHeaders.write(EVENTSTREAM_DATE_HEADER, 5);
+    nonSignatureHeaders.put(8);
+    WriteBigEndian(nonSignatureHeaders, static_cast<uint64_t>(now.Millis()));
+    nonSignatureHeaders.flush();
+
+    auto hashOutcome = m_hash.Calculate(nonSignatureHeaders);
     if (!hashOutcome.IsSuccess())
     {
         AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Failed to hash (sha256) non-signature headers.");
@@ -588,7 +697,7 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
     const auto messageLength = aws_event_stream_message_total_length(&message);
     payload.write(reinterpret_cast<char*> (message.message_buffer), messageLength);
     payload.flush();
-    hashOutcome = m_v4signer.GetSha256()->Calculate(payload);
+    hashOutcome = m_hash.Calculate(payload);
     if (!hashOutcome.IsSuccess())
     {
         AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Failed to hash (sha256) non-signature headers.");
@@ -599,13 +708,13 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
     stringToSign << HashingUtils::HexEncode(payloadHash);
     AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Signing the string - " << stringToSign.str());
 
-    auto finalSignature = m_v4signer.GenerateSignature(m_credentialsProvider->GetAWSCredentials(), stringToSign.str(), simpleDate);
+    auto finalSignature = GenerateSignature(m_credentialsProvider->GetAWSCredentials(), stringToSign.str(), simpleDate);
 
     aws_array_list headers;
     aws_array_list_init_dynamic(&headers, aws_default_allocator(), 5, sizeof(aws_event_stream_header_value_pair));
+    aws_event_stream_add_timestamp_header(&headers, EVENTSTREAM_DATE_HEADER, strlen(EVENTSTREAM_DATE_HEADER), now.Millis());
     aws_event_stream_add_bytebuf_header(&headers, EVENTSTREAM_SIGNATURE_HEADER, strlen(EVENTSTREAM_SIGNATURE_HEADER),
             reinterpret_cast<uint8_t*>(const_cast<char*>(finalSignature.data())), finalSignature.length(), 1/*copy*/);
-    aws_event_stream_add_timestamp_header(&headers, EVENTSTREAM_DATE_HEADER, strlen(EVENTSTREAM_DATE_HEADER), now.Millis());
 
     // mutate the input message to become an envelope of the original message along with the signature headers
     // and the date
@@ -618,9 +727,110 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
     {
         AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Error creating event-stream signed envelope message from paylaod.");
         aws_array_list_clean_up(&headers);
-        return {};
+        return false;
     }
     aws_event_stream_message_clean_up(&originalMessage);
     AWS_LOGSTREAM_INFO(v4StreamingLogTag, "Signed event chunk - " << finalSignature);
+    priorSignature = finalSignature;
     return true;
+}
+
+bool AWSAuthEventStreamV4Signer::ShouldSignHeader(const Aws::String& header) const
+{
+    return std::find(m_unsignedHeaders.cbegin(), m_unsignedHeaders.cend(), Aws::Utils::StringUtils::ToLower(header.c_str())) == m_unsignedHeaders.cend();
+}
+
+Aws::String AWSAuthEventStreamV4Signer::GenerateSignature(const AWSCredentials& credentials, const Aws::String& stringToSign,
+        const Aws::String& simpleDate) const
+{
+    auto key = ComputeHash(credentials.GetAWSSecretKey(), simpleDate);
+    return GenerateSignature(stringToSign, key);
+}
+
+Aws::String AWSAuthEventStreamV4Signer::GenerateSignature(const AWSCredentials& credentials, const Aws::String& stringToSign,
+        const Aws::String& simpleDate, const Aws::String& region, const Aws::String& serviceName) const
+{
+    auto key = ComputeHash(credentials.GetAWSSecretKey(), simpleDate, region, serviceName);
+    return GenerateSignature(stringToSign, key);
+}
+
+Aws::String AWSAuthEventStreamV4Signer::GenerateSignature(const Aws::String& stringToSign, const ByteBuffer& key) const
+{
+    AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Final String to sign: " << stringToSign);
+
+    Aws::StringStream ss;
+
+    auto hashResult = m_HMAC.Calculate(ByteBuffer((unsigned char*)stringToSign.c_str(), stringToSign.length()), key);
+    if (!hashResult.IsSuccess())
+    {
+        AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Unable to hmac (sha256) final string");
+        AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "The final string is: \"" << stringToSign << "\"");
+        return {};
+    }
+
+    //now we finally sign our request string with our hex encoded derived hash.
+    auto finalSigningDigest = hashResult.GetResult();
+
+    auto finalSigningHash = HashingUtils::HexEncode(finalSigningDigest);
+    AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Final computed signing hash: " << finalSigningHash);
+
+    return finalSigningHash;
+}
+
+Aws::String AWSAuthEventStreamV4Signer::GenerateStringToSign(const Aws::String& dateValue, const Aws::String& simpleDate,
+        const Aws::String& canonicalRequestHash, const Aws::String& region, const Aws::String& serviceName) const
+{
+    //generate the actual string we will use in signing the final request.
+    Aws::StringStream ss;
+
+    ss << AWS_HMAC_SHA256 << NEWLINE << dateValue << NEWLINE << simpleDate << "/" << region << "/"
+        << serviceName << "/" << AWS4_REQUEST << NEWLINE << canonicalRequestHash;
+
+    return ss.str();
+}
+
+ByteBuffer AWSAuthEventStreamV4Signer::ComputeHash(const Aws::String& secretKey, const Aws::String& simpleDate) const
+{
+    return ComputeHash(secretKey, simpleDate, m_region, m_serviceName);
+}
+
+Aws::Utils::ByteBuffer AWSAuthEventStreamV4Signer::ComputeHash(const Aws::String& secretKey,
+        const Aws::String& simpleDate, const Aws::String& region, const Aws::String& serviceName) const
+{
+    Aws::String signingKey(SIGNING_KEY);
+    signingKey.append(secretKey);
+    auto hashResult = m_HMAC.Calculate(ByteBuffer((unsigned char*)simpleDate.c_str(), simpleDate.length()),
+            ByteBuffer((unsigned char*)signingKey.c_str(), signingKey.length()));
+
+    if (!hashResult.IsSuccess())
+    {
+        AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Failed to HMAC (SHA256) date string \"" << simpleDate << "\"");
+        return {};
+    }
+
+    auto kDate = hashResult.GetResult();
+    hashResult = m_HMAC.Calculate(ByteBuffer((unsigned char*)region.c_str(), region.length()), kDate);
+    if (!hashResult.IsSuccess())
+    {
+        AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Failed to HMAC (SHA256) region string \"" << region << "\"");
+        return {};
+    }
+
+    auto kRegion = hashResult.GetResult();
+    hashResult = m_HMAC.Calculate(ByteBuffer((unsigned char*)serviceName.c_str(), serviceName.length()), kRegion);
+    if (!hashResult.IsSuccess())
+    {
+        AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Failed to HMAC (SHA256) service string \"" << m_serviceName << "\"");
+        return {};
+    }
+
+    auto kService = hashResult.GetResult();
+    hashResult = m_HMAC.Calculate(ByteBuffer((unsigned char*)AWS4_REQUEST, strlen(AWS4_REQUEST)), kService);
+    if (!hashResult.IsSuccess())
+    {
+        AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Unable to HMAC (SHA256) request string");
+        AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "The request string is: \"" << AWS4_REQUEST << "\"");
+        return {};
+    }
+    return hashResult.GetResult();
 }

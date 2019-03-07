@@ -24,6 +24,8 @@
 #include <aws/core/utils/Array.h>
 #include <aws/core/utils/threading/ReaderWriterLock.h>
 #include <aws/event-stream/event_stream.h>
+#include <aws/core/utils/crypto/Sha256.h>
+#include <aws/core/utils/crypto/Sha256HMAC.h>
 
 #include <memory>
 #include <atomic>
@@ -222,10 +224,9 @@ namespace Aws
 
             Aws::String GetServiceName() const { return m_serviceName; }
             Aws::String GetRegion() const { return m_region; }
-            Aws::Utils::Crypto::Sha256* GetSha256() const { return m_hash.get(); }
-            Aws::Utils::Crypto::Sha256HMAC* GetSha256HMAC() const { return m_HMAC.get(); }
             Aws::String GenerateSignature(const Aws::Auth::AWSCredentials& credentials,
                     const Aws::String& stringToSign, const Aws::String& simpleDate) const;
+            bool ShouldSignHeader(const Aws::String& header) const;
 
         protected:
             bool m_includeSha256HashHeader;
@@ -246,7 +247,6 @@ namespace Aws
             Aws::Utils::ByteBuffer ComputeHash(const Aws::String& secretKey,
                     const Aws::String& simpleDate, const Aws::String& region, const Aws::String& serviceName) const;
 
-            bool ShouldSignHeader(const Aws::String& header) const;
 
             std::shared_ptr<Auth::AWSCredentialsProvider> m_credentialsProvider;
             const Aws::String m_serviceName;
@@ -272,9 +272,13 @@ namespace Aws
         public:
             AWSAuthEventStreamV4Signer(const std::shared_ptr<Auth::AWSCredentialsProvider>& credentialsProvider,
                     const char* serviceName, const Aws::String& region) :
-                m_v4signer(credentialsProvider, serviceName, region),
+                m_serviceName(serviceName),
+                m_region(region),
                 m_credentialsProvider(credentialsProvider)
             {
+
+                m_unsignedHeaders.emplace_back("x-amzn-trace-id");
+                m_unsignedHeaders.emplace_back("user-agent");
             }
 
             const char* GetName() const override { return Aws::Auth::EVENTSTREAM_SIGV4_SIGNER; }
@@ -286,10 +290,7 @@ namespace Aws
                 return SignRequest(r, true);
             }
 
-            bool SignRequest(Aws::Http::HttpRequest& request, bool signBody) const override
-            {
-                return m_v4signer.SignRequest(request, signBody);
-            }
+            bool SignRequest(Aws::Http::HttpRequest& request, bool signBody) const override;
 
             /**
              * Do nothing
@@ -305,8 +306,26 @@ namespace Aws
              * Do nothing
              */
             bool PresignRequest(Aws::Http::HttpRequest&, const char*, const char*, long long) const override { return false; }
+
+            bool ShouldSignHeader(const Aws::String& header) const;
         private:
-            AWSAuthV4Signer m_v4signer;
+            Aws::String GenerateSignature(const Aws::Auth::AWSCredentials& credentials,
+                    const Aws::String& stringToSign, const Aws::String& simpleDate) const;
+            Aws::String GenerateSignature(const Aws::Auth::AWSCredentials& credentials,
+                    const Aws::String& stringToSign, const Aws::String& simpleDate, const Aws::String& region, 
+                    const Aws::String& serviceName) const;
+            Aws::String GenerateSignature(const Aws::String& stringToSign, const Aws::Utils::ByteBuffer& key) const;
+            Aws::String GenerateStringToSign(const Aws::String& dateValue, const Aws::String& simpleDate,
+                    const Aws::String& canonicalRequestHash, const Aws::String& region,
+                    const Aws::String& serviceName) const;
+            Aws::Utils::ByteBuffer ComputeHash(const Aws::String& secretKey, const Aws::String& simpleDate) const;
+            Aws::Utils::ByteBuffer ComputeHash(const Aws::String& secretKey,
+                    const Aws::String& simpleDate, const Aws::String& region, const Aws::String& serviceName) const;
+            const Aws::String m_serviceName;
+            const Aws::String m_region;
+            mutable Aws::Utils::Crypto::Sha256 m_hash;
+            mutable Aws::Utils::Crypto::Sha256HMAC m_HMAC;
+            Aws::Vector<Aws::String> m_unsignedHeaders;
             std::shared_ptr<Auth::AWSCredentialsProvider> m_credentialsProvider;
         };
 
