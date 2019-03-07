@@ -676,9 +676,9 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
 
 
     Aws::StringStream nonSignatureHeaders;
-    nonSignatureHeaders.put(5);
+    nonSignatureHeaders.put(5); // length of the string
     nonSignatureHeaders.write(EVENTSTREAM_DATE_HEADER, 5);
-    nonSignatureHeaders.put(8);
+    nonSignatureHeaders.put(8); // type of the value (timestamp in this case)
     WriteBigEndian(nonSignatureHeaders, static_cast<uint64_t>(now.Millis()));
     nonSignatureHeaders.flush();
 
@@ -709,13 +709,15 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
     AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Payload hash  - " << HashingUtils::HexEncode(payloadHash));
     AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Signing the string - " << stringToSign.str());
 
-    auto finalSignature = GenerateSignature(m_credentialsProvider->GetAWSCredentials(), stringToSign.str(), simpleDate);
+    const Aws::String finalSignature = GenerateSignature(m_credentialsProvider->GetAWSCredentials(), stringToSign.str(), simpleDate);
+    priorSignature = finalSignature;
+    const auto finalSignatureBits = HashingUtils::HexDecode(finalSignature);
 
     aws_array_list headers;
     aws_array_list_init_dynamic(&headers, aws_default_allocator(), 5, sizeof(aws_event_stream_header_value_pair));
     aws_event_stream_add_timestamp_header(&headers, EVENTSTREAM_DATE_HEADER, strlen(EVENTSTREAM_DATE_HEADER), now.Millis());
     aws_event_stream_add_bytebuf_header(&headers, EVENTSTREAM_SIGNATURE_HEADER, strlen(EVENTSTREAM_SIGNATURE_HEADER),
-            reinterpret_cast<uint8_t*>(&finalSignature[0]), finalSignature.length(), 1/*copy*/);
+            finalSignatureBits.GetUnderlyingData(), finalSignatureBits.GetLength(), 1);
 
     // mutate the input message to become an envelope of the original message along with the signature headers
     // and the date
@@ -734,7 +736,6 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
     }
     aws_event_stream_message_clean_up(&originalMessage);
     AWS_LOGSTREAM_INFO(v4StreamingLogTag, "Signed event chunk - " << finalSignature);
-    priorSignature = finalSignature;
     return true;
 }
 
