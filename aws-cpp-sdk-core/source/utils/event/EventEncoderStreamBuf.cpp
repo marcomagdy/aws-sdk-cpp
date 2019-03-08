@@ -78,10 +78,7 @@ namespace Aws
                     std::copy(message.message_buffer, message.message_buffer + messageLength,
                             std::back_inserter(m_backbuf));
 
-                    const auto pbegin = &m_putArea[0];
-                    setp(pbegin, pbegin + m_putArea.size());
                 }
-                aws_event_stream_message_clean_up(&message);
                 m_signal.notify_one();
             }
 
@@ -114,6 +111,9 @@ namespace Aws
                     }
 
                     SendMessage(message);
+                    aws_event_stream_message_clean_up(&message);
+                    const auto pbegin = &m_putArea[0];
+                    setp(pbegin, pbegin + m_putArea.size());
                 }
             }
 
@@ -169,6 +169,7 @@ namespace Aws
 
             int EventEncoderStreamBuf::sync()
             {
+                FinalizeEvent(&m_headers);
                 FinalizeEvent(nullptr);
                 return 0;
             }
