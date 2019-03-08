@@ -229,20 +229,22 @@ namespace
         Aws::Client::AWSNullSigner nullSigner;
         EventEncoderStream io;
         io.set_signer(&nullSigner);
+        io.set_event_headers(&eventStreamHeaders);
         const char payloadString[] = "Amazon Web Services, Inc.";
         io.set_signature_seed("deadbeef");
-        for (int i = 0; i < 5; i++)
+        constexpr long iterations = 5;
+        for (int i = 0; i < iterations; i++)
         {
             io.write(payloadString, sizeof(payloadString));
-            io.finalize_event(&eventStreamHeaders);
         }
 
+        io.flush();
         io.close();
         ASSERT_TRUE(io);
 
         char output[1024];
         io.read(output, sizeof(output));
-        ASSERT_EQ(635, io.gcount());
+        ASSERT_GE(io.gcount(), static_cast<long>(sizeof(payloadString) * iterations));
         ASSERT_TRUE(io.eof());
     }
 
@@ -261,10 +263,11 @@ namespace
         Aws::Client::AWSNullSigner nullSigner;
         EventEncoderStream io;
         io.set_signer(&nullSigner);
+        io.set_event_headers(&eventStreamHeaders);
         const char payloadString[] = "Amazon Web Services, Inc.";
         io.set_signature_seed("deadbeef");
         io.write(payloadString, sizeof(payloadString));
-        io.finalize_event(&eventStreamHeaders);
+        io.flush();
         io.close();
         ASSERT_TRUE(io);
 

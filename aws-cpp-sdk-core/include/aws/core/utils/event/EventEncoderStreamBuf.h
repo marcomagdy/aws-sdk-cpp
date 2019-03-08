@@ -17,11 +17,12 @@
 #include <aws/core/Core_EXPORTS.h>
 #include <aws/core/auth/AWSAuthSigner.h>
 #include <aws/common/array_list.h>
-#include <ios>
 
 #include <mutex>
 #include <condition_variable>
 #include <streambuf>
+#include <ios>
+#include <cassert>
 
 namespace Aws
 {
@@ -52,17 +53,27 @@ namespace Aws
                  */
                 void SetSignatureSeed(const Aws::String& seed) { m_priorSignature = seed; }
 
-                void SetEventHeaders(aws_array_list headers) { m_headers = headers; }
+                void SetEventHeaders(aws_array_list* headers)
+                {
+                    aws_array_list_clean_up(&m_headers);
+                    m_headers.alloc = headers->alloc;
+                    m_headers.item_size = headers->item_size;
+                    auto r = aws_array_list_copy(headers, &m_headers);
+                    assert(!r);
+                }
 
                 void SetSigner(const Aws::Client::AWSAuthSigner* signer) { m_signer = signer; }
 
                 void SetEof();
                 void SendMessage(aws_event_stream_message& message);
 
-                /**
-                 * Wraps the current bits in the put area as the payload of an Event.
-                 * @param headers The EventStream headers used in the created EventStream message. This method cleans-up
-                 * the memory used by the headers.
+                /*
+                 * Transforms the bytes written to the stream to an event-stream envelope and signs it.
+                 * The resulting data from that operation are made available for reading.
+                 * This method can block the current thread if there is not enough capacity left in the underlying
+                 * buffer. The underlying buffer is cleared when the data in the stream is read.
+                 *
+                 * @param headers The headers to use when constructing the event-stream envelope.
                  */
                 void FinalizeEvent(aws_array_list* headers);
 

@@ -54,45 +54,57 @@ namespace Aws
             class AWS_CORE_API EventEncoderStream : public Aws::IOStream
             {
             public:
-                /**
-                 * Used for creating event-stream messages and serializing them as bit stream
-                 */
-                explicit EventEncoderStream();
 
+                EventEncoderStream();
+
+                /**
+                 * Sets the signature seed used by event-stream events.
+                 * Every event uses its previous event's signature to calculate its own signature.
+                 * Setting this value affects the signature calculation of the first event.
+                 */
                 void set_signature_seed(const Aws::String& seed) { m_eventEncoderStreamBuf.SetSignatureSeed(seed); }
 
-                void set_event_headers(aws_array_list headers) { m_eventEncoderStreamBuf.SetEventHeaders(headers); }
+                /**
+                 * Sets the headers wrapped with each event sent on the stream.
+                 */
+                void set_event_headers(aws_array_list* headers) { m_eventEncoderStreamBuf.SetEventHeaders(headers); }
 
+                /**
+                 * Sets the signer implementation used for every event.
+                 */
                 void set_signer(Aws::Client::AWSAuthSigner* signer) { m_eventEncoderStreamBuf.SetSigner(signer); }
 
                 /**
-                 * Marks the end of the output stream. Effectively, on the reading side (input) this translates to EOF.
-                 * Any writes to the stream after this call are not guaranteed to be read by another concurrent thread
-                 * consuming this stream as input stream.
+                 * Allows a stream writer to communicate the end of the stream to a stream reader.
+                 *
+                 * Any writes to the stream after this call are not guaranteed to be read by another concurrent
+                 * read thread.
                  */
                 void close() { m_eventEncoderStreamBuf.SetEof(); }
 
-                /*
-                 * Transforms the bytes written to the stream to an event-stream envelope and signs it.
-                 * The resulting data from that operation are made available for reading.
-                 * This method can block the current thread if there is not enough capacity left in the underlying
-                 * buffer. The underlying buffer is cleared when the data in the stream is read.
+                /**
+                 * Tests if the stream is ready to be written to.
+                 * The stream is ready when all of the following are true:
+                 * 1- It has been seeded with an initial signature v4 value
+                 * 2- It has event-streams headers set.
+                 * 3- It has a signer set.
                  *
-                 * @param headers The headers to use when constructing the event-stream envelope.
+                 * This method is thread-safe
                  */
-                void finalize_event(aws_array_list* headers); // TODO: do not expose the event-stream library internal data structures.
-                                                             // instead pass a list of key/value pairs and construct that library structure
-                                                             // in the implementation
                 bool is_ready_for_streaming() const
                 {
                     return m_readyForStreaming.load(std::memory_order_acquire);
                 }
 
+                /**
+                 * Sets the stream write-readiness state.
+                 *
+                 * This method is thread-safe
+                 */
                 void set_ready_for_streaming(bool ready)
                 {
                     m_readyForStreaming.store(ready, std::memory_order_release);
                 }
-
 
             private:
                 std::atomic<bool> m_readyForStreaming;

@@ -69,31 +69,26 @@ namespace Aws
                     return;
                 }
 
-                auto messageLength = aws_event_stream_message_total_length(&message);
+                auto messageLength = message.message_buffer ? aws_event_stream_message_total_length(&message) : 0;
 
-                // scope the lock
+                // messageLength would be zero if the message is empty and the signer did not wrap the empty message
+                if (messageLength)
                 {
-                    std::unique_lock<std::mutex> lock(m_lock);
-                    m_signal.wait(lock, [this, messageLength]{ return messageLength <= (m_backbuf.capacity() - m_backbuf.size()); });
-                    std::copy(message.message_buffer, message.message_buffer + messageLength,
-                            std::back_inserter(m_backbuf));
+                    // scope the lock
+                    {
+                        std::unique_lock<std::mutex> lock(m_lock);
+                        m_signal.wait(lock, [this, messageLength]{ return messageLength <= (m_backbuf.capacity() - m_backbuf.size()); });
+                        std::copy(message.message_buffer, message.message_buffer + messageLength,
+                                std::back_inserter(m_backbuf));
 
+                    }
+                    m_signal.notify_one();
                 }
-                m_signal.notify_one();
             }
 
             void EventEncoderStreamBuf::FinalizeEvent(aws_array_list* headers)
             {
-                if (headers == nullptr)
-                {
-                    aws_event_stream_message message;
-                    message.alloc = nullptr;
-                    message.message_buffer = nullptr;
-                    message.owns_buffer = false;
-                    SendMessage(message);
-                }
-
-                else if (pptr() >= pbase())
+                if (pptr() > pbase())
                 {
                     // create the message here and copy to the get area
                     aws_byte_buf payload;
@@ -101,7 +96,6 @@ namespace Aws
                     payload.buffer = reinterpret_cast<uint8_t*>(pbase());
                     payload.capacity = 0;
                     payload.allocator = nullptr;
-
 
                     aws_event_stream_message message;
                     if(auto err = aws_event_stream_message_init(&message, aws_default_allocator(), headers, &payload))
@@ -170,7 +164,12 @@ namespace Aws
             int EventEncoderStreamBuf::sync()
             {
                 FinalizeEvent(&m_headers);
-                FinalizeEvent(nullptr);
+                // Send an empty frame to signal end of frames (TranscribeStreaming specific)
+                aws_event_stream_message message;
+                message.alloc = nullptr;
+                message.message_buffer = nullptr;
+                message.owns_buffer = false;
+                SendMessage(message);
                 return 0;
             }
         }

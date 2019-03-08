@@ -481,7 +481,7 @@ static Aws::String GetAuthorizationHeader(const Aws::Http::HttpRequest& httpRequ
 }
 
 void AWSClient::EncodeBodyAsEventStream(const std::shared_ptr<Aws::Http::HttpRequest>& httpRequest,
-        Aws::Client::AWSAuthSigner* signer, const std::shared_ptr<Aws::IOStream>& body, aws_array_list headers) const
+        Aws::Client::AWSAuthSigner* signer, const std::shared_ptr<Aws::IOStream>& body, aws_array_list* headers) const
 {
     auto eventStream = std::static_pointer_cast<Aws::Utils::Event::EventEncoderStream>(body);
     eventStream->set_event_headers(headers);
@@ -498,7 +498,9 @@ void AWSClient::BuildHttpRequest(const Aws::AmazonWebServiceRequest& request,
     AddHeadersToRequest(httpRequest, request.GetHeaders());
     if (request.IsEventStreamed())
     {
-        EncodeBodyAsEventStream(httpRequest, signer, request.GetBody(), request.GetEventStreamHeaders());
+        auto headers = request.GetEventStreamHeaders();
+        EncodeBodyAsEventStream(httpRequest, signer, request.GetBody(), &headers);
+        aws_array_list_clean_up(&headers);
     }
     else
     {

@@ -32,12 +32,6 @@ namespace Aws
                 m_eventEncoderStreamBuf(nullptr/*signer*/)
             {
             }
-
-            void EventEncoderStream::finalize_event(aws_array_list* headers)
-            {
-                m_eventEncoderStreamBuf.FinalizeEvent(headers);
-            }
-
         }
     }
 }
