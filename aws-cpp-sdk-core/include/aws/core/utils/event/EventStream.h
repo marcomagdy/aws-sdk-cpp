@@ -18,6 +18,7 @@
 #include <aws/core/utils/event/EventStreamBuf.h>
 #include <aws/core/utils/event/EventEncoderStreamBuf.h>
 #include <aws/core/utils/memory/stl/AWSStreamFwd.h>
+#include <atomic>
 
 namespace Aws
 {
@@ -82,8 +83,19 @@ namespace Aws
                 void finalize_event(aws_array_list* headers); // TODO: do not expose the event-stream library internal data structures.
                                                              // instead pass a list of key/value pairs and construct that library structure
                                                              // in the implementation
+                bool is_ready_for_streaming() const
+                {
+                    return m_readyForStreaming.load(std::memory_order_acquire);
+                }
+
+                void set_ready_for_streaming(bool ready)
+                {
+                    m_readyForStreaming.store(ready, std::memory_order_release);
+                }
+
 
             private:
+                std::atomic<bool> m_readyForStreaming;
                 EventEncoderStreamBuf m_eventEncoderStreamBuf;
             };
         }

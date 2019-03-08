@@ -710,7 +710,6 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
     const auto payloadHash = hashOutcome.GetResult();
     stringToSign << HashingUtils::HexEncode(payloadHash);
     AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Payload hash  - " << HashingUtils::HexEncode(payloadHash));
-    AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Signing the string - " << stringToSign.str());
 
     const Aws::String finalSignature = GenerateSignature(m_credentialsProvider->GetAWSCredentials(), stringToSign.str(), simpleDate);
     priorSignature = finalSignature;
@@ -738,7 +737,7 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
         return false;
     }
     aws_event_stream_message_clean_up(&originalMessage);
-    AWS_LOGSTREAM_INFO(v4StreamingLogTag, "Signed event chunk - " << finalSignature);
+    AWS_LOGSTREAM_INFO(v4StreamingLogTag, "Event chunk final signature - " << finalSignature);
     return true;
 }
 

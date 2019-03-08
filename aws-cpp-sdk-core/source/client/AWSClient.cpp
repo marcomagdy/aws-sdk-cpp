@@ -42,10 +42,8 @@
 #include <aws/core/monitoring/MonitoringManager.h>
 #include <aws/core/utils/event/EventStream.h>
 
-#include <thread>
 #include <cstring>
 #include <cassert>
-#include <fstream>
 
 using namespace Aws;
 using namespace Aws::Client;
@@ -489,6 +487,7 @@ void AWSClient::EncodeBodyAsEventStream(const std::shared_ptr<Aws::Http::HttpReq
     eventStream->set_event_headers(headers);
     eventStream->set_signature_seed(GetAuthorizationHeader(*httpRequest));
     eventStream->set_signer(signer);
+    eventStream->set_ready_for_streaming(true);
     httpRequest->AddContentBody(eventStream);
 }
 

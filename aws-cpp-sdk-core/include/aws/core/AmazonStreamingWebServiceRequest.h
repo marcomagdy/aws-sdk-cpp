@@ -88,18 +88,6 @@ namespace Aws
     class AWS_CORE_API AmazonEventStreamingWebServiceRequest : public AmazonStreamingWebServiceRequest
     {
     public:
-        bool IsReadyForStreaming() const
-        {
-            return m_readyForStreaming;
-        }
-
-        void SetReadyForStreaming(bool ready)
-        {
-            m_readyForStreaming = ready;
-        }
-
-    private:
-        std::atomic<bool> m_readyForStreaming;
 
     };
 
