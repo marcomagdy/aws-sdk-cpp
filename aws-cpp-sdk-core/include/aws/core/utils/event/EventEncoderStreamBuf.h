@@ -58,8 +58,7 @@ namespace Aws
                     aws_array_list_clean_up(&m_headers);
                     m_headers.alloc = headers->alloc;
                     m_headers.item_size = headers->item_size;
-                    auto r = aws_array_list_copy(headers, &m_headers);
-                    assert(!r);
+                    aws_array_list_copy(headers, &m_headers);
                 }
 
                 void SetSigner(const Aws::Client::AWSAuthSigner* signer) { m_signer = signer; }
