@@ -737,6 +737,7 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
         return false;
     }
     aws_event_stream_message_clean_up(&originalMessage);
+    aws_array_list_clean_up(&headers);
     AWS_LOGSTREAM_INFO(v4StreamingLogTag, "Event chunk final signature - " << finalSignature);
     return true;
 }
