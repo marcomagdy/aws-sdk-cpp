@@ -644,7 +644,7 @@ bool AWSAuthEventStreamV4Signer::SignRequest(Aws::Http::HttpRequest& request, bo
     Aws::StringStream ss;
     ss << AWS_HMAC_SHA256 << " " << CREDENTIAL << EQ << credentials.GetAWSAccessKeyId() << "/" << simpleDate
         << "/" << m_region << "/" << m_serviceName << "/" << AWS4_REQUEST << ", " << SIGNED_HEADERS << EQ
-        << signedHeadersValue << ", " << SIGNATURE << EQ << finalSignature;
+        << signedHeadersValue << ", " << SIGNATURE << EQ << HashingUtils::HexEncode(finalSignature);
 
     auto awsAuthString = ss.str();
     AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Signing request with: " << awsAuthString);
@@ -654,12 +654,13 @@ bool AWSAuthEventStreamV4Signer::SignRequest(Aws::Http::HttpRequest& request, bo
     return true;
 }
 
-static void WriteBigEndian(Aws::StringStream& stream, uint64_t n)
+// this works regardless if the current machine is Big/Little Endian
+static void WriteBigEndian(Aws::String& str, uint64_t n)
 {
     int shift = 56;
     while(shift >= 0)
     {
-        stream.put((n >> shift) & 0xFF);
+        str.push_back((n >> shift) & 0xFF);
         shift -= 8;
     }
 }
@@ -675,12 +676,11 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
         << m_serviceName << "/aws4_request" << NEWLINE << priorSignature << NEWLINE;
 
 
-    Aws::StringStream nonSignatureHeaders;
-    nonSignatureHeaders.put(5); // length of the string
-    nonSignatureHeaders.write(EVENTSTREAM_DATE_HEADER, 5);
-    nonSignatureHeaders.put(8); // type of the value (timestamp in this case)
+    Aws::String nonSignatureHeaders;
+    nonSignatureHeaders.push_back(char(5)); // length of the string
+    nonSignatureHeaders += EVENTSTREAM_DATE_HEADER;
+    nonSignatureHeaders.push_back(char(8)); // type of the value (timestamp in this case)
     WriteBigEndian(nonSignatureHeaders, static_cast<uint64_t>(now.Millis()));
-    nonSignatureHeaders.flush();
 
     auto hashOutcome = m_hash.Calculate(nonSignatureHeaders);
     if (!hashOutcome.IsSuccess())
@@ -689,7 +689,7 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
         return false;
     }
 
-    auto nonSignatureHeadersHash = hashOutcome.GetResult();
+    const auto nonSignatureHeadersHash = hashOutcome.GetResult();
     stringToSign << HashingUtils::HexEncode(nonSignatureHeadersHash) << NEWLINE;
 
     // HexHash(payload)
@@ -711,15 +711,16 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
     stringToSign << HashingUtils::HexEncode(payloadHash);
     AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Payload hash  - " << HashingUtils::HexEncode(payloadHash));
 
-    const Aws::String finalSignature = GenerateSignature(m_credentialsProvider->GetAWSCredentials(), stringToSign.str(), simpleDate);
+    const Utils::ByteBuffer finalSignatureDigest = GenerateSignature(m_credentialsProvider->GetAWSCredentials(), stringToSign.str(), simpleDate);
+    const auto finalSignature = HashingUtils::HexEncode(finalSignatureDigest);
+    AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Final computed signing hash: " << finalSignature);
     priorSignature = finalSignature;
-    const auto finalSignatureBits = HashingUtils::HexDecode(finalSignature);
 
     aws_array_list headers;
     aws_array_list_init_dynamic(&headers, aws_default_allocator(), 5, sizeof(aws_event_stream_header_value_pair));
     aws_event_stream_add_timestamp_header(&headers, EVENTSTREAM_DATE_HEADER, strlen(EVENTSTREAM_DATE_HEADER), now.Millis());
     aws_event_stream_add_bytebuf_header(&headers, EVENTSTREAM_SIGNATURE_HEADER, strlen(EVENTSTREAM_SIGNATURE_HEADER),
-            finalSignatureBits.GetUnderlyingData(), finalSignatureBits.GetLength(), 1);
+            finalSignatureDigest.GetUnderlyingData(), finalSignatureDigest.GetLength(), 1);
 
     // mutate the input message to become an envelope of the original message along with the signature headers
     // and the date
@@ -747,21 +748,21 @@ bool AWSAuthEventStreamV4Signer::ShouldSignHeader(const Aws::String& header) con
     return std::find(m_unsignedHeaders.cbegin(), m_unsignedHeaders.cend(), Aws::Utils::StringUtils::ToLower(header.c_str())) == m_unsignedHeaders.cend();
 }
 
-Aws::String AWSAuthEventStreamV4Signer::GenerateSignature(const AWSCredentials& credentials, const Aws::String& stringToSign,
+Utils::ByteBuffer AWSAuthEventStreamV4Signer::GenerateSignature(const AWSCredentials& credentials, const Aws::String& stringToSign,
         const Aws::String& simpleDate) const
 {
     auto key = ComputeHash(credentials.GetAWSSecretKey(), simpleDate);
     return GenerateSignature(stringToSign, key);
 }
 
-Aws::String AWSAuthEventStreamV4Signer::GenerateSignature(const AWSCredentials& credentials, const Aws::String& stringToSign,
+Utils::ByteBuffer AWSAuthEventStreamV4Signer::GenerateSignature(const AWSCredentials& credentials, const Aws::String& stringToSign,
         const Aws::String& simpleDate, const Aws::String& region, const Aws::String& serviceName) const
 {
     auto key = ComputeHash(credentials.GetAWSSecretKey(), simpleDate, region, serviceName);
     return GenerateSignature(stringToSign, key);
 }
 
-Aws::String AWSAuthEventStreamV4Signer::GenerateSignature(const Aws::String& stringToSign, const ByteBuffer& key) const
+Utils::ByteBuffer AWSAuthEventStreamV4Signer::GenerateSignature(const Aws::String& stringToSign, const ByteBuffer& key) const
 {
     AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Final String to sign: " << stringToSign);
 
@@ -775,13 +776,7 @@ Aws::String AWSAuthEventStreamV4Signer::GenerateSignature(const Aws::String& str
         return {};
     }
 
-    //now we finally sign our request string with our hex encoded derived hash.
-    auto finalSigningDigest = hashResult.GetResult();
-
-    auto finalSigningHash = HashingUtils::HexEncode(finalSigningDigest);
-    AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Final computed signing hash: " << finalSigningHash);
-
-    return finalSigningHash;
+    return hashResult.GetResult();
 }
 
 Aws::String AWSAuthEventStreamV4Signer::GenerateStringToSign(const Aws::String& dateValue, const Aws::String& simpleDate,

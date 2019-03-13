@@ -309,12 +309,12 @@ namespace Aws
 
             bool ShouldSignHeader(const Aws::String& header) const;
         private:
-            Aws::String GenerateSignature(const Aws::Auth::AWSCredentials& credentials,
+            Utils::ByteBuffer GenerateSignature(const Aws::Auth::AWSCredentials& credentials,
                     const Aws::String& stringToSign, const Aws::String& simpleDate) const;
-            Aws::String GenerateSignature(const Aws::Auth::AWSCredentials& credentials,
+            Utils::ByteBuffer GenerateSignature(const Aws::Auth::AWSCredentials& credentials,
                     const Aws::String& stringToSign, const Aws::String& simpleDate, const Aws::String& region, 
                     const Aws::String& serviceName) const;
-            Aws::String GenerateSignature(const Aws::String& stringToSign, const Aws::Utils::ByteBuffer& key) const;
+            Utils::ByteBuffer GenerateSignature(const Aws::String& stringToSign, const Aws::Utils::ByteBuffer& key) const;
             Aws::String GenerateStringToSign(const Aws::String& dateValue, const Aws::String& simpleDate,
                     const Aws::String& canonicalRequestHash, const Aws::String& region,
                     const Aws::String& serviceName) const;
