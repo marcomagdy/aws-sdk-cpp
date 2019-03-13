@@ -61,7 +61,7 @@ namespace
             for (const auto& header : headers)
             {
                 ASSERT_EQ(AWS_OP_SUCCESS, aws_event_stream_add_string_header(&eventStreamHeaders, header.first.c_str(), static_cast<uint8_t>(header.first.size()),
-                    header.second.c_str(), static_cast<uint16_t>(header.second.size()), 0/*no copy*/));
+                    header.second.c_str(), static_cast<uint16_t>(header.second.size()), 1/*no copy*/));
             }
             // Payload
             const char* payload = "Records";
