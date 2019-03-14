@@ -699,7 +699,7 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
     {
         // use a preallocatedStreamBuf to avoid making a copy.
         // The Hashing API requires either Aws::String or IStream as input.
-        // TODO: the hashing API should be accepting 'unsigned char*' as input.
+        // TODO: the hashing API should be accept 'unsigned char*' as input.
         Utils::Stream::PreallocatedStreamBuf streamBuf(message.message_buffer, messageLength);
         Aws::IOStream payload(&streamBuf);
         hashOutcome = m_hash.Calculate(payload);
@@ -759,15 +759,21 @@ bool AWSAuthEventStreamV4Signer::ShouldSignHeader(const Aws::String& header) con
 Utils::ByteBuffer AWSAuthEventStreamV4Signer::GenerateSignature(const AWSCredentials& credentials, const Aws::String& stringToSign,
         const Aws::String& simpleDate) const
 {
-    auto key = ComputeHash(credentials.GetAWSSecretKey(), simpleDate);
-    return GenerateSignature(stringToSign, key);
-}
+    Utils::Threading::ReaderLockGuard guard(m_derivedKeyLock);
+    const auto& secretKey = credentials.GetAWSSecretKey();
+    if (secretKey != m_currentSecretKey || simpleDate != m_currentDateStr)
+    {
+        guard.UpgradeToWriterLock();
+        // double-checked lock to prevent updating twice
+        if (m_currentDateStr != simpleDate || m_currentSecretKey != secretKey)
+        {
+            m_currentSecretKey = secretKey;
+            m_currentDateStr = simpleDate;
+            m_derivedKey = ComputeHash(m_currentSecretKey, m_currentDateStr, m_region, m_serviceName);
+        }
 
-Utils::ByteBuffer AWSAuthEventStreamV4Signer::GenerateSignature(const AWSCredentials& credentials, const Aws::String& stringToSign,
-        const Aws::String& simpleDate, const Aws::String& region, const Aws::String& serviceName) const
-{
-    auto key = ComputeHash(credentials.GetAWSSecretKey(), simpleDate, region, serviceName);
-    return GenerateSignature(stringToSign, key);
+    }
+    return GenerateSignature(stringToSign, m_derivedKey);
 }
 
 Utils::ByteBuffer AWSAuthEventStreamV4Signer::GenerateSignature(const Aws::String& stringToSign, const ByteBuffer& key) const

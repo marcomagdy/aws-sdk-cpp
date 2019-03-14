@@ -311,9 +311,6 @@ namespace Aws
         private:
             Utils::ByteBuffer GenerateSignature(const Aws::Auth::AWSCredentials& credentials,
                     const Aws::String& stringToSign, const Aws::String& simpleDate) const;
-            Utils::ByteBuffer GenerateSignature(const Aws::Auth::AWSCredentials& credentials,
-                    const Aws::String& stringToSign, const Aws::String& simpleDate, const Aws::String& region, 
-                    const Aws::String& serviceName) const;
             Utils::ByteBuffer GenerateSignature(const Aws::String& stringToSign, const Aws::Utils::ByteBuffer& key) const;
             Aws::String GenerateStringToSign(const Aws::String& dateValue, const Aws::String& simpleDate,
                     const Aws::String& canonicalRequestHash, const Aws::String& region,
@@ -325,6 +322,10 @@ namespace Aws
             const Aws::String m_region;
             mutable Aws::Utils::Crypto::Sha256 m_hash;
             mutable Aws::Utils::Crypto::Sha256HMAC m_HMAC;
+            mutable Utils::Threading::ReaderWriterLock m_derivedKeyLock;
+            mutable Aws::Utils::ByteBuffer m_derivedKey;
+            mutable Aws::String m_currentDateStr;
+            mutable Aws::String m_currentSecretKey;
             Aws::Vector<Aws::String> m_unsignedHeaders;
             std::shared_ptr<Auth::AWSCredentialsProvider> m_credentialsProvider;
         };
