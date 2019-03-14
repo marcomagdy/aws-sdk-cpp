@@ -27,6 +27,7 @@
 #include <aws/core/utils/memory/AWSMemory.h>
 #include <aws/core/utils/crypto/Sha256.h>
 #include <aws/core/utils/crypto/Sha256HMAC.h>
+#include <aws/core/utils/stream/PreallocatedStreamBuf.h>
 
 #include <cstdio>
 #include <iomanip>
@@ -693,23 +694,30 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
     stringToSign << HashingUtils::HexEncode(nonSignatureHeadersHash) << NEWLINE;
 
     // HexHash(payload)
-    Aws::StringStream payload;
     const auto messageLength = message.message_buffer ? aws_event_stream_message_total_length(&message) : 0;
     if (messageLength)
     {
-        payload.write(reinterpret_cast<char*> (message.message_buffer), messageLength);
-        payload.flush();
-    }
-    hashOutcome = m_hash.Calculate(payload);
-    if (!hashOutcome.IsSuccess())
-    {
-        AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Failed to hash (sha256) non-signature headers.");
-        return false;
-    }
+        // use a preallocatedStreamBuf to avoid making a copy.
+        // The Hashing API requires either Aws::String or IStream as input.
+        // TODO: the hashing API should be accepting 'unsigned char*' as input.
+        Utils::Stream::PreallocatedStreamBuf streamBuf(message.message_buffer, messageLength);
+        Aws::IOStream payload(&streamBuf);
+        hashOutcome = m_hash.Calculate(payload);
 
-    const auto payloadHash = hashOutcome.GetResult();
-    stringToSign << HashingUtils::HexEncode(payloadHash);
-    AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Payload hash  - " << HashingUtils::HexEncode(payloadHash));
+        if (!hashOutcome.IsSuccess())
+        {
+            AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Failed to hash (sha256) non-signature headers.");
+            return false;
+        }
+        const auto payloadHash = hashOutcome.GetResult();
+        stringToSign << HashingUtils::HexEncode(payloadHash);
+        AWS_LOGSTREAM_DEBUG(v4StreamingLogTag, "Payload hash  - " << HashingUtils::HexEncode(payloadHash));
+    }
+    else
+    {
+        AWS_LOGSTREAM_WARN(v4StreamingLogTag, "Attempting to sign an empty message (no payload and no headers). "
+                "It is unlikely that this is the intended behavior.");
+    }
 
     const Utils::ByteBuffer finalSignatureDigest = GenerateSignature(m_credentialsProvider->GetAWSCredentials(), stringToSign.str(), simpleDate);
     const auto finalSignature = HashingUtils::HexEncode(finalSignatureDigest);
