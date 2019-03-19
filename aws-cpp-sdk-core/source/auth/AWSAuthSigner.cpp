@@ -739,7 +739,7 @@ bool AWSAuthEventStreamV4Signer::SignEventMessage(aws_event_stream_message& mess
     payloadBits.len = messageLength;
     payloadBits.buffer = message.message_buffer;
     message.message_buffer = nullptr;
-    if(auto err = aws_event_stream_message_init(&message, aws_default_allocator(), &headers, &payloadBits))
+    if(aws_event_stream_message_init(&message, aws_default_allocator(), &headers, &payloadBits))
     {
         AWS_LOGSTREAM_ERROR(v4StreamingLogTag, "Error creating event-stream signed envelope message from paylaod.");
         aws_array_list_clean_up(&headers);

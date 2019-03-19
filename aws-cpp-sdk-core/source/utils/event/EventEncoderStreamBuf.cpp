@@ -98,7 +98,7 @@ namespace Aws
                     payload.allocator = nullptr;
 
                     aws_event_stream_message message;
-                    if(auto err = aws_event_stream_message_init(&message, aws_default_allocator(), headers, &payload))
+                    if(aws_event_stream_message_init(&message, aws_default_allocator(), headers, &payload))
                     {
                         AWS_LOGSTREAM_ERROR(TAG, "Error creating event-stream message from paylaod.");
                         return;
